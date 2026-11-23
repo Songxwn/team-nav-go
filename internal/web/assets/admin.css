@@ -1078,3 +1078,63 @@ dialog.modal .modal-body .form-grid {
     font-size: 22px;
   }
 }
+
+/* Small phones ----------------------------------------------------------- */
+
+@media (max-width: 420px) {
+  .admin-main {
+    padding: 0 10px 26px;
+  }
+  .admin-topbar {
+    gap: 8px;
+    padding: 14px 0 12px;
+  }
+  .admin-heading h1 {
+    font-size: 17px;
+  }
+  .admin-crumb {
+    font-size: 9px;
+  }
+  .admin-side {
+    width: min(84vw, 244px);
+  }
+  .stat-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .stat-card {
+    padding: 14px 15px;
+  }
+  .stat-card .stat-value {
+    font-size: 22px;
+  }
+  .toolbar {
+    gap: 8px;
+  }
+  .toolbar .select {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .table-wrap {
+    border-radius: var(--radius-sm);
+  }
+  .data-table th,
+  .data-table td {
+    padding: 9px 10px;
+    font-size: 12px;
+  }
+  dialog.modal {
+    width: calc(100vw - 16px);
+  }
+  .modal-head,
+  .modal-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+  .modal-actions .btn {
+    flex: 1 1 auto;
+  }
+}
