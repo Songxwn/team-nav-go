@@ -1,0 +1,12 @@
+.git
+.github
+data
+*.db
+*.db-shm
+*.db-wal
+teamnav
+teamnav.exe
+coverage.out
+README.md
+LICENSE
+docker-compose.yml

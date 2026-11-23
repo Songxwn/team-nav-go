@@ -1,0 +1,25 @@
+services:
+  teamnav:
+    image: ghcr.io/songxwn/team-nav-go:latest
+    build:
+      context: .
+    container_name: teamnav
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      # 首次启动时创建管理员；已存在数据库时会忽略这些变量
+      TEAMNAV_ADMIN_USER: admin
+      TEAMNAV_ADMIN_PASSWORD: change-me-please
+      TEAMNAV_IMAGE_CACHE_MB: "64"
+      # 通过 HTTPS 反向代理访问时打开，Cookie 将带上 Secure 标记
+      TEAMNAV_COOKIE_SECURE: "0"
+      # 位于 Nginx / Caddy 之后时打开，用于获取真实客户端 IP
+      TEAMNAV_TRUST_PROXY: "1"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-accent="indigo">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f5fc">
+  <meta name="robots" content="noindex">
+  <title>管理后台 · 星云导航</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/admin.css">
+  <script src="/assets/theme.js"></script>
+</head>
+<body class="admin-body">
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="grid-overlay" aria-hidden="true"></div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8Z"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+      <symbol id="i-layout" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 9h16M9 20V9"/></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M3.5 9.5h17"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4l2 2.5h6A2.5 2.5 0 0 1 20.5 10v7A2.5 2.5 0 0 1 18 19.5H6A2.5 2.5 0 0 1 3.5 17Z"/></symbol>
+      <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="M4 10v4a1 1 0 0 0 1 1h2l9 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M19 9a3.5 3.5 0 0 1 0 6"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.7-3.2 3-5 6-5s5.3 1.8 6 5"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17 14.2c2.2.4 3.7 1.9 4 4.3"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m5 18 5-5 3.5 3.5L16 14l4 4"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2.2-.6a6 6 0 0 0-.7-1.7l1.1-2-2-2-2 1.1a6 6 0 0 0-1.7-.7L10.5 2h-3l-.6 2.2a6 6 0 0 0-1.7.7l-2-1.1-2 2 1.1 2a6 6 0 0 0-.7 1.7L2 10.5v3l2.2.6a6 6 0 0 0 .7 1.7l-1.1 2 2 2 2-1.1a6 6 0 0 0 1.7.7l.6 2.2h3l.6-2.2a6 6 0 0 0 1.7-.7l2 1.1 2-2-1.1-2a6 6 0 0 0 .7-1.7Z" transform="translate(2.5 2.5) scale(.8)"/></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 8l-4 4 4 4M6 12h9"/></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19Z"/><path d="M9.5 20.5V14h5v6.5"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V9M8 13l4-4 4 4M5 4h14"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6Z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 14h6l-1 7 8-11h-6Z"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="admin-shell">
+    <aside class="admin-side" id="adminSide">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span class="brand-text">
+          <strong>星云导航</strong>
+          <span>管理控制台</span>
+        </span>
+      </a>
+
+      <div class="nav-label">管理</div>
+      <nav class="admin-nav" id="adminNav">
+        <button class="admin-nav-item active" data-view="overview">
+          <svg class="icon"><use href="#i-layout"/></svg>概览
+        </button>
+        <button class="admin-nav-item" data-view="cards">
+          <svg class="icon"><use href="#i-card"/></svg>卡片管理
+          <span class="badge" id="pendingBadge" hidden>0</span>
+        </button>
+        <button class="admin-nav-item" data-view="categories">
+          <svg class="icon"><use href="#i-folder"/></svg>分类管理
+        </button>
+        <button class="admin-nav-item" data-view="notices">
+          <svg class="icon"><use href="#i-megaphone"/></svg>通知公告
+        </button>
+        <button class="admin-nav-item" data-view="users">
+          <svg class="icon"><use href="#i-users"/></svg>用户与权限
+        </button>
+        <button class="admin-nav-item" data-view="images">
+          <svg class="icon"><use href="#i-image"/></svg>图片库
+        </button>
+        <button class="admin-nav-item" data-view="settings">
+          <svg class="icon"><use href="#i-settings"/></svg>系统设置
+        </button>
+      </nav>
+
+      <div class="admin-side-foot">
+        <a class="admin-return" href="/">
+          <svg class="icon"><use href="#i-home"/></svg>
+          返回导航首页
+        </a>
+        <div class="user-chip">
+          <div class="avatar" id="adminAvatar">A</div>
+          <div class="meta">
+            <strong id="adminName">管理员</strong>
+            <span id="adminRole">admin</span>
+          </div>
+          <button class="icon-button" type="button" id="logoutButton" title="退出登录" style="width:30px;height:30px">
+            <svg class="icon" style="width:15px;height:15px"><use href="#i-logout"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <button class="icon-button admin-menu" type="button" id="adminMenu" aria-label="菜单">
+          <svg class="icon"><use href="#i-menu"/></svg>
+        </button>
+        <div class="admin-heading">
+          <span class="admin-crumb">控制台 / <span id="crumb">概览</span></span>
+          <h1 id="viewTitle">概览</h1>
+        </div>
+        <span class="spacer"></span>
+        <button class="icon-button theme-toggle" type="button" id="themeToggle" title="切换主题">
+          <svg class="icon sun"><use href="#i-sun"/></svg>
+          <svg class="icon moon"><use href="#i-moon"/></svg>
+        </button>
+        <a class="btn btn-ghost btn-sm" href="/" target="_blank" rel="noopener">
+          <svg class="icon" style="width:15px;height:15px"><use href="#i-home"/></svg>
+          查看站点
+        </a>
+      </header>
+
+      <section class="view active" data-panel="overview">
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="admin-columns">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>最近 7 天访问</h2>
+                <p>每天打开导航首页的次数</p>
+              </div>
+              <span class="soft-chip"><svg class="icon"><use href="#i-bolt"/></svg>实时统计</span>
+            </div>
+            <div class="chart" id="viewsChart"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>热门服务</h2>
+                <p>按累计点击排序</p>
+              </div>
+            </div>
+            <div class="rank-list" id="topCards"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>最近添加</h2>
+              <p>最新创建的卡片</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" type="button" data-goto="cards">管理全部</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>服务</th><th>分类</th><th>状态</th><th>创建时间</th></tr></thead>
+              <tbody id="recentCards"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="cards">
+        <div class="toolbar">
+          <div class="search-field">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <input class="input" id="cardSearch" placeholder="搜索名称、描述或标签">
+          </div>
+          <select class="select" id="cardStatusFilter">
+            <option value="">全部状态</option>
+            <option value="approved">已上线</option>
+            <option value="pending">待审核</option>
+          </select>
+          <select class="select" id="cardCategoryFilter">
+            <option value="">全部分类</option>
+          </select>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="button" id="addCardButton">
+            <svg class="icon" style="width:16px;height:16px"><use href="#i-plus"/></svg>
+            新建卡片
+          </button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th style="width:60px">排序</th><th>服务</th><th>分类</th><th>标签</th><th>状态</th><th>点击</th><th style="width:200px">操作</th></tr>
+              </thead>
+              <tbody id="cardTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="categories">
+        <div class="toolbar">
+          <p class="toolbar-note">最多支持三级分类，删除分类会同时移除其下的卡片。</p>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="button" id="addCategoryButton">
+            <svg class="icon" style="width:16px;height:16px"><use href="#i-plus"/></svg>
+            新建分类
+          </button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th style="width:60px">排序</th><th>分类名称</th><th>描述</th><th>层级</th><th>卡片</th><th>可见</th><th style="width:200px">操作</th></tr>
+              </thead>
+              <tbody id="categoryTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="notices">
+        <div class="toolbar">
+          <p class="toolbar-note">公告会显示在首页顶部，支持定时切换与倒计时。</p>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="button" id="addNoticeButton">
+            <svg class="icon" style="width:16px;height:16px"><use href="#i-plus"/></svg>
+            新建公告
+          </button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>公告</th><th>级别</th><th>截止时间</th><th>状态</th><th style="width:170px">操作</th></tr>
+              </thead>
+              <tbody id="noticeTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="users">
+        <div class="toolbar">
+          <p class="toolbar-note">管理员可进入后台；普通成员只能浏览和提交卡片。</p>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="button" id="addUserButton">
+            <svg class="icon" style="width:16px;height:16px"><use href="#i-plus"/></svg>
+            新建用户
+          </button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>用户</th><th>角色</th><th>创建时间</th><th style="width:230px">操作</th></tr>
+              </thead>
+              <tbody id="userTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="images">
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="imageInput" accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/x-icon" hidden>
+          <span class="upload-mark"><svg class="icon"><use href="#i-upload"/></svg></span>
+          <div>
+            <strong>拖拽图片到这里，或点击上传</strong>
+            <p>支持 PNG / JPEG / GIF / WebP / AVIF / ICO，单张不超过 2MB，自动按内容去重</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div><h2>已上传图片</h2><p>图片保存在 SQLite，并由内存 LRU 缓存加速</p></div>
+            <span class="soft-chip" id="imageCount">0 张</span>
+          </div>
+          <div class="image-grid" id="imageGrid"></div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="settings">
+        <div class="admin-columns settings-columns">
+          <form class="panel form-panel" id="settingsForm">
+            <div class="panel-head">
+              <div><h2>站点信息</h2><p>这些内容会展示在导航首页</p></div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="setSiteName">站点名称</label>
+                <input class="input" id="setSiteName" maxlength="30">
+              </div>
+              <div class="field">
+                <label for="setSiteSubtitle">副标题</label>
+                <input class="input" id="setSiteSubtitle" maxlength="60">
+              </div>
+              <div class="field span-2">
+                <label for="setWelcome">欢迎语</label>
+                <input class="input" id="setWelcome" maxlength="60">
+              </div>
+              <div class="field">
+                <label for="setAccent">主题色</label>
+                <select class="select" id="setAccent">
+                  <option value="indigo">星云紫</option>
+                  <option value="emerald">翡翠绿</option>
+                  <option value="rose">玫瑰红</option>
+                  <option value="amber">琥珀金</option>
+                  <option value="ocean">深海蓝</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="setInterval">公告切换间隔（秒）</label>
+                <input class="input" id="setInterval" type="number" min="3" max="120">
+              </div>
+              <div class="field span-2">
+                <label>站点 LOGO</label>
+                <div class="logo-row">
+                  <span class="logo-preview" id="logoPreview">✦</span>
+                  <input class="input" id="setLogo" placeholder="图片地址，或点击右侧上传">
+                  <button class="btn btn-ghost btn-sm" type="button" id="logoUploadButton">上传</button>
+                  <input type="file" id="logoInput" accept="image/*" hidden>
+                </div>
+              </div>
+              <div class="field span-2">
+                <label for="setFooter">页脚文字</label>
+                <input class="input" id="setFooter" maxlength="120">
+              </div>
+              <label class="switch-row span-2">
+                <input type="checkbox" id="setAllowApply">
+                <span class="switch"></span>
+                <span><strong>允许访客提交卡片</strong><small>提交后进入待审核列表</small></span>
+              </label>
+              <label class="switch-row span-2">
+                <input type="checkbox" id="setShowClicks">
+                <span class="switch"></span>
+                <span><strong>在卡片上展示点击次数</strong><small>关闭后前台隐藏统计数字</small></span>
+              </label>
+            </div>
+            <div class="panel-actions">
+              <button class="btn btn-primary" type="submit">保存设置</button>
+            </div>
+          </form>
+
+          <div class="stack">
+            <form class="panel form-panel" id="passwordForm">
+              <div class="panel-head">
+                <div><h2>修改我的密码</h2><p>定期更换密码更安全</p></div>
+              </div>
+              <div class="form-grid">
+                <div class="field span-2">
+                  <label for="pwdCurrent">当前密码</label>
+                  <input class="input" id="pwdCurrent" type="password" autocomplete="current-password">
+                </div>
+                <div class="field span-2">
+                  <label for="pwdNew">新密码</label>
+                  <input class="input" id="pwdNew" type="password" autocomplete="new-password" placeholder="至少 8 位">
+                </div>
+              </div>
+              <div class="panel-actions">
+                <button class="btn btn-primary" type="submit">更新密码</button>
+              </div>
+            </form>
+
+            <div class="panel form-panel">
+              <div class="panel-head">
+                <div><h2>数据备份</h2><p>SQLite 数据库包含卡片、设置与图片</p></div>
+              </div>
+              <p class="muted-copy">下载快照后请妥善保存。恢复时停止服务，用备份文件替换 data/team-nav.db 即可。</p>
+              <div class="panel-actions">
+                <a class="btn btn-ghost" href="/api/admin/backup" download>
+                  <svg class="icon" style="width:15px;height:15px"><use href="#i-download"/></svg>
+                  下载数据库快照
+                </a>
+              </div>
+            </div>
+
+            <div class="panel about-card">
+              <span class="soft-chip"><svg class="icon"><use href="#i-shield"/></svg>Go + SQLite</span>
+              <h2>TeamNav Go</h2>
+              <p>单二进制部署，内嵌前端与图片缓存。版本 <code id="appVersion">dev</code></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="modal modal-wide" id="cardDialog">
+    <form method="dialog" id="cardForm" novalidate>
+      <div class="modal-head">
+        <span class="modal-mark"><svg class="icon"><use href="#i-card"/></svg></span>
+        <div><h3 id="cardDialogTitle">新建卡片</h3><p>图标支持 Emoji、文字、图片链接或上传</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-error" id="cardError"></div>
+        <input type="hidden" id="cardId">
+        <div class="form-grid">
+          <div class="field">
+            <label for="cardName">名称</label>
+            <input class="input" id="cardName" maxlength="60" required>
+          </div>
+          <div class="field">
+            <label for="cardCategory">分类</label>
+            <select class="select" id="cardCategory" required></select>
+          </div>
+          <div class="field span-2">
+            <label for="cardURL">访问地址</label>
+            <input class="input" id="cardURL" type="url" placeholder="https://example.com">
+          </div>
+          <div class="field">
+            <label for="cardIconType">图标类型</label>
+            <select class="select" id="cardIconType">
+              <option value="emoji">Emoji</option>
+              <option value="text">文字</option>
+              <option value="image">上传图片</option>
+              <option value="url">图片链接</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cardIconValue">图标内容</label>
+            <div class="icon-input-row">
+              <span class="logo-preview small" id="cardIconPreview">🚀</span>
+              <input class="input" id="cardIconValue" maxlength="500" placeholder="🚀 或 /api/images/xxx">
+              <input type="file" id="cardIconFile" accept="image/*" hidden>
+              <button class="btn btn-ghost btn-sm" type="button" id="cardIconUpload">上传</button>
+            </div>
+          </div>
+          <div class="field span-2">
+            <label for="cardDesc">描述</label>
+            <textarea class="textarea" id="cardDesc" maxlength="300"></textarea>
+          </div>
+          <div class="field">
+            <label for="cardTags">标签</label>
+            <input class="input" id="cardTags" placeholder="监控, 运维">
+          </div>
+          <div class="field">
+            <label for="cardStatus">状态</label>
+            <select class="select" id="cardStatus">
+              <option value="approved">已上线</option>
+              <option value="pending">待审核</option>
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="cardSort">排序值</label>
+            <input class="input" id="cardSort" type="number" value="0">
+            <span class="hint">数字越小越靠前，也可以保存后在列表中用箭头调整</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
+          <button class="btn btn-primary" type="submit" id="cardSubmit">保存卡片</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="categoryDialog">
+    <form method="dialog" id="categoryForm" novalidate>
+      <div class="modal-head">
+        <span class="modal-mark"><svg class="icon"><use href="#i-folder"/></svg></span>
+        <div><h3 id="categoryDialogTitle">新建分类</h3><p>用于组织首页卡片，最多三级</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-error" id="categoryError"></div>
+        <input type="hidden" id="categoryId">
+        <div class="form-grid">
+          <div class="field">
+            <label for="categoryName">名称</label>
+            <input class="input" id="categoryName" maxlength="24" required>
+          </div>
+          <div class="field">
+            <label for="categoryIcon">图标</label>
+            <input class="input" id="categoryIcon" maxlength="8" placeholder="📁">
+          </div>
+          <div class="field span-2">
+            <label for="categoryParent">上级分类</label>
+            <select class="select" id="categoryParent"><option value="0">顶级分类</option></select>
+          </div>
+          <div class="field span-2">
+            <label for="categoryDesc">描述</label>
+            <input class="input" id="categoryDesc" maxlength="200">
+          </div>
+          <div class="field">
+            <label for="categorySort">排序值</label>
+            <input class="input" id="categorySort" type="number" value="0">
+          </div>
+          <label class="switch-row">
+            <input type="checkbox" id="categoryVisible" checked>
+            <span class="switch"></span>
+            <span><strong>首页可见</strong><small>关闭后仅后台可见</small></span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
+          <button class="btn btn-primary" type="submit" id="categorySubmit">保存分类</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="noticeDialog">
+    <form method="dialog" id="noticeForm" novalidate>
+      <div class="modal-head">
+        <span class="modal-mark"><svg class="icon"><use href="#i-megaphone"/></svg></span>
+        <div><h3 id="noticeDialogTitle">新建公告</h3><p>显示在首页顶部，支持倒计时</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-error" id="noticeError"></div>
+        <input type="hidden" id="noticeId">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label for="noticeTitle">标题</label>
+            <input class="input" id="noticeTitle" maxlength="80" required>
+          </div>
+          <div class="field span-2">
+            <label for="noticeContent">内容</label>
+            <textarea class="textarea" id="noticeContent" maxlength="2000"></textarea>
+          </div>
+          <div class="field">
+            <label for="noticeLevel">级别</label>
+            <select class="select" id="noticeLevel">
+              <option value="info">信息</option>
+              <option value="success">成功</option>
+              <option value="warning">提醒</option>
+              <option value="danger">重要</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="noticeSort">排序值</label>
+            <input class="input" id="noticeSort" type="number" value="0">
+          </div>
+          <div class="field span-2">
+            <label for="noticeLink">跳转链接</label>
+            <input class="input" id="noticeLink" placeholder="https://…（可选）">
+          </div>
+          <div class="field">
+            <label for="noticeExpires">截止时间</label>
+            <input class="input" id="noticeExpires" type="datetime-local">
+            <span class="hint">留空表示长期有效</span>
+          </div>
+          <label class="switch-row">
+            <input type="checkbox" id="noticeActive" checked>
+            <span class="switch"></span>
+            <span><strong>启用</strong><small>关闭后不显示</small></span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
+          <button class="btn btn-primary" type="submit" id="noticeSubmit">保存公告</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="userDialog">
+    <form method="dialog" id="userForm" novalidate>
+      <div class="modal-head">
+        <span class="modal-mark"><svg class="icon"><use href="#i-users"/></svg></span>
+        <div><h3 id="userDialogTitle">新建用户</h3><p>分配后台管理或浏览权限</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-error" id="userError"></div>
+        <input type="hidden" id="userId">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label for="userUsername">用户名</label>
+            <input class="input" id="userUsername" maxlength="32" autocomplete="off" required>
+            <span class="hint">3-32 位字母、数字或 _ . -</span>
+          </div>
+          <div class="field span-2" id="userPasswordField">
+            <label for="userPassword">初始密码</label>
+            <input class="input" id="userPassword" type="password" autocomplete="new-password" placeholder="至少 8 位">
+          </div>
+          <div class="field span-2">
+            <label for="userDisplay">显示名称</label>
+            <input class="input" id="userDisplay" maxlength="32">
+          </div>
+          <div class="field span-2">
+            <label for="userRole">角色</label>
+            <select class="select" id="userRole">
+              <option value="member">普通成员</option>
+              <option value="admin">管理员</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
+          <button class="btn btn-primary" type="submit" id="userSubmit">保存用户</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="passwordDialog">
+    <form method="dialog" id="resetForm" novalidate>
+      <div class="modal-head">
+        <span class="modal-mark"><svg class="icon"><use href="#i-shield"/></svg></span>
+        <div><h3>重置密码</h3><p id="resetTarget">为用户设置新密码</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-error" id="resetError"></div>
+        <input type="hidden" id="resetUserId">
+        <div class="field">
+          <label for="resetPassword">新密码</label>
+          <input class="input" id="resetPassword" type="password" autocomplete="new-password" placeholder="至少 8 位">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
+          <button class="btn btn-primary" type="submit">确认重置</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="confirmDialog">
+    <div class="modal-head">
+      <span class="modal-mark danger"><svg class="icon"><use href="#i-trash"/></svg></span>
+      <div><h3 id="confirmTitle">确认删除？</h3><p id="confirmText">此操作无法撤销</p></div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
+        <button class="btn btn-danger" type="button" id="confirmButton">确认删除</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <script src="/assets/admin.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Build artifacts and local data
+/data/
+*.db
+*.db-shm
+*.db-wal
+/teamnav
+/teamnav.exe
+/coverage.out
+/dist/
+
+# Editor and OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+.env
