@@ -19,6 +19,7 @@ type bootstrapResponse struct {
 	Notices    []model.Notice    `json:"notices"`
 	User       *model.User       `json:"user,omitempty"`
 	Stats      publicStats       `json:"stats"`
+	Version    string            `json:"version"`
 }
 
 type publicStats struct {
@@ -71,6 +72,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		Notices:    notices,
 		User:       s.currentUser(r),
 		Stats:      stats,
+		Version:    s.version,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

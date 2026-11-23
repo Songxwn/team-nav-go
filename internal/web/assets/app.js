@@ -166,6 +166,7 @@
       state.notices = data.notices || [];
       state.user = data.user || null;
       state.stats = data.stats || {};
+      if (data.version) $("#footerVersion").textContent = "TeamNav v" + data.version;
       indexCategories(state.categories, 0);
       applySite();
       renderAll();
@@ -704,13 +705,19 @@
     var select = $("#applyCategory");
     var options = [];
     state.categories.forEach(function (root) {
-      var children = (root.children || []).filter(function (child) { return childHasCards(child); });
+      var children = root.children || [];
       if (!children.length) {
         options.push({ id: root.id, label: root.name });
-      } else {
-        children.forEach(function (child) { options.push({ id: child.id, label: root.name + " / " + child.name }); });
+        return;
       }
+      children.forEach(function (child) {
+        options.push({ id: child.id, label: root.name + " / " + child.name });
+      });
     });
+    if (!options.length) {
+      toast("管理员还没有创建分类，暂时无法提交", "error");
+      return;
+    }
     select.innerHTML = options.map(function (opt) {
       return '<option value="' + opt.id + '">' + esc(opt.label) + "</option>";
     }).join("");

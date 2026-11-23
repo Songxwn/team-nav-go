@@ -428,6 +428,11 @@ svg.icon {
   font-variant-numeric: tabular-nums;
 }
 
+.nav-group {
+  display: grid;
+  gap: 3px;
+}
+
 .nav-children {
   margin: 2px 0 8px 18px;
   padding-left: 12px;
