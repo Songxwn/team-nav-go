@@ -215,7 +215,11 @@
     try {
       var me = await api("/api/auth/me");
       if (!me.user || me.user.role !== "admin") {
-        window.location.href = "/?login=1&redirect=%2Fadmin";
+        if (me.user) {
+          window.location.href = "/";
+        } else {
+          window.location.href = "/?login=1&redirect=%2Fadmin";
+        }
         return;
       }
       state.user = me.user;

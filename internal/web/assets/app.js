@@ -777,6 +777,7 @@
       state.user = data.user;
       el.loginDialog.close();
       var target = authRedirectTarget();
+      if (target.indexOf("/admin") === 0 && state.user.role !== "admin") target = "/";
       if (target !== "/" && target !== location.pathname + location.search) {
         window.location.href = target;
         return;
