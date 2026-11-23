@@ -2,6 +2,10 @@
 (function () {
   "use strict";
 
+  var I18N = window.I18N;
+  var t = I18N.t;
+  var plural = I18N.plural;
+
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
@@ -151,10 +155,17 @@
 
   async function init() {
     applyThemeLabel();
+    updateLangButton();
     $("#todayLabel").textContent = formatToday();
     $("#searchShortcut").textContent = shortcutLabel();
     $("#searchShortcut2").textContent = shortcutLabel();
     bindGlobalEvents();
+    I18N.onChange(function () {
+      updateLangButton();
+      applySite();
+      renderAll();
+      I18N.localize(document.body);
+    });
 
     try {
       var res = await fetch("/api/bootstrap", { headers: { Accept: "application/json" } });
@@ -167,16 +178,22 @@
       state.user = data.user || null;
       state.stats = data.stats || {};
       if (data.version) $("#footerVersion").textContent = "TeamNav v" + data.version;
+      if (!I18N.hasExplicitChoice() && (state.site.language === "zh" || state.site.language === "en")) {
+        I18N.setLang(state.site.language, { persist: false, silent: true });
+        updateLangButton();
+      }
       indexCategories(state.categories, 0);
       applySite();
       renderAll();
+      I18N.localize(document.body);
       if (new URLSearchParams(location.search).get("login") === "1" && !state.user) {
         openLogin();
       }
     } catch (err) {
       el.sections.innerHTML = '<div class="empty">' + icon("info") +
         "<span>加载失败，请刷新页面重试</span></div>";
-      toast("加载数据失败：" + err.message, "error");
+      I18N.localize(el.sections);
+      toast(t("加载数据失败：{msg}", { msg: err.message }), "error");
     }
   }
 
@@ -190,15 +207,17 @@
 
   function applySite() {
     var site = state.site;
-    var name = site.siteName || "星云导航";
-    document.title = name + " · 团队服务";
+    var name = site.siteName || t("星云导航");
+    document.title = name + " · " + t("团队服务");
     $("#brandName").textContent = name;
     $("#brandSubtitle").textContent = site.siteSubtitle || "";
     $("#heroEyebrow").textContent = "WELCOME · " + name;
-    $("#heroSubtitle").textContent = site.siteSubtitle || "团队服务，一站式入口";
+    $("#heroSubtitle").textContent = site.siteSubtitle || t("团队服务，一站式入口");
     $("#footerText").textContent = site.footerText || "Built with Go · SQLite";
     document.documentElement.setAttribute("data-accent", site.accent || "indigo");
-    if (site.welcomeText) $("#todayLabel").textContent = site.welcomeText + " · " + formatToday();
+    $("#todayLabel").textContent = site.welcomeText
+      ? site.welcomeText + " · " + formatToday()
+      : formatToday();
 
     var mark = $("#brandMark");
     if (site.siteLogo) {
@@ -206,12 +225,19 @@
     }
 
     updateStats();
+    I18N.localize(document.body);
   }
 
   function updateStats() {
-    $("#statServices").textContent = state.cards.length;
-    $("#statCategories").textContent = state.categories.length;
-    $("#statClicks").textContent = formatNumber(state.stats.clicks || 0);
+    var cards = state.cards.length;
+    var categories = state.categories.length;
+    var clicks = state.stats.clicks || 0;
+    $("#statServices").textContent = cards;
+    $("#statCategories").textContent = categories;
+    $("#statClicks").textContent = formatNumber(clicks);
+    $("#unitServices").textContent = plural(cards, "个服务", "service", "services");
+    $("#unitCategories").textContent = plural(categories, "个分类", "category", "categories");
+    $("#unitClicks").textContent = plural(clicks, "次访问", "visit", "visits");
   }
 
   function formatNumber(n) {
@@ -222,7 +248,7 @@
 
   function formatToday() {
     try {
-      return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(new Date());
+      return new Intl.DateTimeFormat(I18N.locale(), { month: "long", day: "numeric", weekday: "short" }).format(new Date());
     } catch (e) {
       return new Date().toLocaleDateString();
     }
@@ -273,6 +299,7 @@
       el.adminEntry.hidden = true;
       el.loginButton.hidden = false;
     }
+    I18N.localize(el.userChip);
   }
 
   function renderNav() {
@@ -303,6 +330,7 @@
     });
 
     el.nav.innerHTML = html;
+    I18N.localize(el.nav);
     $$("[data-target]", el.nav).forEach(function (link) {
       link.addEventListener("click", function () {
         closeNav();
@@ -339,7 +367,9 @@
         if (left > 0) {
           var days = Math.floor(left / 86400000);
           var hours = Math.floor((left % 86400000) / 3600000);
-          countdown = days > 0 ? days + " 天 " + hours + " 小时后截止" : hours + " 小时后截止";
+          countdown = days > 0
+            ? t("{days} 天 {hours} 小时后截止", { days: days, hours: hours })
+            : t("{hours} 小时后截止", { hours: hours });
         }
       }
       el.noticeBar.dataset.level = notice.level || "info";
@@ -352,7 +382,7 @@
           '" target="_blank" rel="noopener">查看详情</a>' : "") +
         "</div>" +
         '<div class="notice-dots">' + notices.map(function (_, i) {
-          return '<button type="button" aria-label="公告 ' + (i + 1) + '" class="' + (i === state.noticeIndex % notices.length ? "active" : "") + '" data-notice="' + i + '"></button>';
+          return '<button type="button" aria-label="' + esc(t("公告 {n}", { n: i + 1 })) + '" class="' + (i === state.noticeIndex % notices.length ? "active" : "") + '" data-notice="' + i + '"></button>';
         }).join("") + "</div>";
       $$("[data-notice]", el.noticeBar).forEach(function (dot) {
         dot.addEventListener("click", function () {
@@ -361,6 +391,7 @@
           restartNoticeTimer();
         });
       });
+      I18N.localize(el.noticeBar);
     }
     paint();
     restartNoticeTimer();
@@ -395,7 +426,7 @@
       '<span class="card-foot">' + tags + clicks + "</span>" +
       "</a>" +
       '<button class="fav' + (fav ? " on" : "") + '" type="button" data-fav="' + card.id +
-      '" aria-label="收藏" title="' + (fav ? "取消收藏" : "收藏") + '">' + icon("star", 15) + "</button>" +
+      '" aria-label="' + esc(fav ? t("取消收藏") : t("收藏")) + '" title="' + esc(fav ? t("取消收藏") : t("收藏")) + '">' + icon("star", 15) + "</button>" +
       "</article>";
   }
 
@@ -418,11 +449,13 @@
       el.sections.innerHTML = '<section class="cat-section"><div class="section-head">' +
         '<div class="section-title"><span class="section-icon">★</span><div><h2>我的收藏</h2>' +
         "<p>只保存在当前浏览器</p></div></div>" +
-        '<div class="section-meta"><span class="count-badge">' + favorites.length + " 个服务</span></div></div>" +
+        '<div class="section-meta"><span class="count-badge">' +
+        plural(favorites.length, "{n} 个服务", "{n} service", "{n} services") + "</span></div></div>" +
         (favorites.length ? gridMarkup(favorites) :
           '<div class="empty">' + icon("star") + "<span>还没有收藏，点击卡片右上角的星标即可收藏</span></div>") +
         "</section>";
       bindCardEvents(el.sections);
+      I18N.localize(el.sections);
       return;
     }
 
@@ -456,13 +489,15 @@
         '<div class="section-head"><div class="section-title"><span class="section-icon">' +
         esc(root.icon || "📁") + "</span><div><h2>" + esc(root.name) + "</h2>" +
         (root.description ? "<p>" + esc(root.description) + "</p>" : "") + "</div></div>" +
-        '<div class="section-meta"><span class="count-badge">' + total + " 个服务</span></div></div>" +
+        '<div class="section-meta"><span class="count-badge">' +
+        plural(total, "{n} 个服务", "{n} service", "{n} services") + "</span></div></div>" +
         inner + "</section>";
     });
 
     el.sections.innerHTML = html || '<div class="empty">' + icon("sparkle") +
       "<span>还没有任何服务，登录后台创建第一张卡片吧</span></div>";
     bindCardEvents(el.sections);
+    I18N.localize(el.sections);
     observeSections();
   }
 
@@ -478,7 +513,9 @@
         saveFavorites();
         var card = button.closest(".card");
         button.classList.toggle("on", state.favorites.has(id));
-        button.title = state.favorites.has(id) ? "取消收藏" : "收藏";
+        var label = state.favorites.has(id) ? t("取消收藏") : t("收藏");
+        button.title = label;
+        button.setAttribute("aria-label", label);
         if (card) card.classList.toggle("is-fav", state.favorites.has(id));
         renderNav();
         if (state.favOnly) renderSections();
@@ -547,11 +584,11 @@
         var haystack = [card.name, card.description, card.url, (card.tags || []).join(" ")].join(" ").toLowerCase();
         return haystack.indexOf(query) >= 0;
       }).slice(0, 9);
-      html += '<div class="palette-group">服务 · ' + cards.length + "</div>";
+      html += '<div class="palette-group">' + esc(t("服务 · {n}", { n: cards.length })) + "</div>";
     }
 
     if (!cards.length && query) {
-      html += '<div class="palette-empty">没有找到与「' + esc(term) + '」相关的服务</div>';
+      html += '<div class="palette-empty">' + esc(t("没有找到与「{q}」相关的服务", { q: term })) + "</div>";
     }
 
     cards.forEach(function (card) {
@@ -576,12 +613,13 @@
           '<span class="mini-icon" style="background:linear-gradient(140deg,' + toneFor(cat.name) + ",#0f172a)\">" +
           esc(cat.icon || "📁") + "</span>" +
           '<span class="palette-text"><strong>' + esc(cat.name) + "</strong><span>" +
-          countSubtree(cat) + " 个服务</span></span>" +
+          plural(countSubtree(cat), "{n} 个服务", "{n} service", "{n} services") + "</span></span>" +
           '<span class="enter">↵</span></button>';
       });
     }
 
     el.paletteBody.innerHTML = html;
+    I18N.localize(el.paletteBody);
     paletteIndex = 0;
     highlightPalette();
     $$(".palette-row", el.paletteBody).forEach(function (row) {
@@ -595,7 +633,7 @@
 
   function categoryPath(id) {
     var node = state.categoryMap.get(id);
-    if (!node) return "未分类";
+    if (!node) return t("未分类");
     var parts = [node.name];
     var parent = state.categoryMap.get(node.parentId);
     while (parent) {
@@ -659,12 +697,12 @@
       password: $("#loginPassword").value
     };
     if (!payload.username || !payload.password) {
-      error.textContent = "请输入用户名和密码";
+      error.textContent = t("请输入用户名和密码");
       error.classList.add("show");
       return;
     }
     button.disabled = true;
-    button.textContent = "登录中…";
+    button.textContent = t("登录中…");
     try {
       var res = await fetch("/api/auth/login", {
         method: "POST",
@@ -672,10 +710,10 @@
         body: JSON.stringify(payload)
       });
       var data = await res.json().catch(function () { return {}; });
-      if (!res.ok) throw new Error(data.error || "登录失败");
+      if (!res.ok) throw new Error(data.error || t("登录失败"));
       state.user = data.user;
       el.loginDialog.close();
-      toast("欢迎回来，" + (state.user.displayName || state.user.username), "success");
+      toast(t("欢迎回来，{name}", { name: state.user.displayName || state.user.username }), "success");
       var boot = await fetch("/api/bootstrap").then(function (r) { return r.json(); });
       state.user = boot.user;
       state.site = boot.site || state.site;
@@ -688,7 +726,7 @@
       error.classList.add("show");
     } finally {
       button.disabled = false;
-      button.textContent = "登录";
+      button.textContent = t("登录");
     }
   }
 
@@ -697,7 +735,7 @@
 
   function openApply() {
     if (state.site.allowApply === "0") {
-      toast("管理员已关闭卡片申请", "error");
+      toast(t("管理员已关闭卡片申请"), "error");
       return;
     }
     $("#applyError").classList.remove("show");
@@ -715,7 +753,7 @@
       });
     });
     if (!options.length) {
-      toast("管理员还没有创建分类，暂时无法提交", "error");
+      toast(t("管理员还没有创建分类，暂时无法提交"), "error");
       return;
     }
     select.innerHTML = options.map(function (opt) {
@@ -737,12 +775,12 @@
       tags: $("#applyTags").value.split(/[,，]/).map(function (tag) { return tag.trim(); }).filter(Boolean)
     };
     if (!payload.name || !payload.url || !payload.categoryId) {
-      error.textContent = "请填写名称、地址并选择分类";
+      error.textContent = t("请填写名称、地址并选择分类");
       error.classList.add("show");
       return;
     }
     button.disabled = true;
-    button.textContent = "提交中…";
+    button.textContent = t("提交中…");
     try {
       var res = await fetch("/api/apply", {
         method: "POST",
@@ -750,15 +788,15 @@
         body: JSON.stringify(payload)
       });
       var data = await res.json().catch(function () { return {}; });
-      if (!res.ok) throw new Error(data.error || "提交失败");
+      if (!res.ok) throw new Error(data.error || t("提交失败"));
       el.applyDialog.close();
-      toast(data.message || "提交成功，等待管理员审核", "success");
+      toast(data.message || t("提交成功，等待管理员审核"), "success");
     } catch (err) {
       error.textContent = err.message;
       error.classList.add("show");
     } finally {
       button.disabled = false;
-      button.textContent = "提交审核";
+      button.textContent = t("提交审核");
     }
   }
 
@@ -769,6 +807,20 @@
     var dark = document.documentElement.getAttribute("data-theme") === "dark";
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", dark ? "#070b16" : "#f3f5fc");
+  }
+
+  function updateLangButton() {
+    var button = $("#langToggle");
+    if (!button) return;
+    var label = $("#langLabel");
+    if (label) label.textContent = I18N.lang() === "en" ? "中" : "EN";
+    var title = t("切换语言");
+    button.title = title;
+    button.setAttribute("aria-label", title);
+  }
+
+  function toggleLang() {
+    I18N.setLang(I18N.lang() === "en" ? "zh" : "en");
   }
 
   function toggleTheme() {
@@ -790,6 +842,7 @@
 
   function bindGlobalEvents() {
     $("#themeToggle").addEventListener("click", toggleTheme);
+    $("#langToggle").addEventListener("click", toggleLang);
     $("#menuToggle").addEventListener("click", function () {
       if (document.body.classList.contains("nav-open")) closeNav();
       else openNav();

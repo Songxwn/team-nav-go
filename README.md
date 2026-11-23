@@ -35,6 +35,7 @@
 - 星标收藏（保存在浏览器 `localStorage`），一键只看收藏
 - 通知公告轮播、截止时间倒计时、级别配色
 - 深色 / 浅色主题、五种主题色、移动端抽屉导航
+- **简体中文 / English 双语界面**，右上角一键切换并记住选择
 - 访客提交卡片，管理员审核后上线
 
 ### 后台
@@ -45,8 +46,9 @@
 - 公告管理：级别、启用状态、截止时间
 - 用户与权限：管理员 / 普通成员、重置密码、最后一名管理员保护
 - 图片库：上传、拖拽、复制地址、删除、内容去重
-- 系统设置：站点名称、副标题、欢迎语、LOGO、主题色、公告间隔、页脚、登录会话有效期
+- 系统设置：站点名称、副标题、欢迎语、界面语言、LOGO、主题色、公告间隔、页脚、登录会话有效期
 - 数据备份：一键下载 SQLite 快照（图片也在库内）
+- 关于卡片内含 GitHub 仓库入口（首页不再展示 GitHub 链接）
 
 ## 快速开始
 
@@ -115,12 +117,32 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 | `siteSubtitle` | 团队服务，一站式入口 | 副标题 |
 | `siteLogo` | 空 | LOGO 图片地址或上传的图片 |
 | `welcomeText` | 今天也要高效出发 | 首页欢迎语 |
+| `language` | zh | 默认界面语言：`zh` / `en`；访客可在右上角切换，个人选择优先 |
 | `footerText` | Built with Go · SQLite · Cocoon UI | 页脚文字 |
 | `accent` | indigo | 主题色：indigo / emerald / rose / amber / ocean |
 | `noticeInterval` | 8 | 公告轮播间隔（3-120 秒） |
 | `allowApply` | 1 | 是否允许访客提交卡片 |
 | `showClicks` | 1 | 卡片是否显示点击次数 |
 | `sessionTTL` | 66 | 登录会话有效期（1-365 天），修改后对新登录生效 |
+
+## 界面语言
+
+界面支持 **简体中文** 与 **English** 两种语言：
+
+- 首页与后台右上角均有语言按钮，切换后立即重绘，并写入 `localStorage`（`tn-lang`）与 `tn_lang` Cookie
+- 也可以直接用 `/?lang=en` 或 `/admin?lang=en` 打开英文界面，便于分享
+- 未手动切换过的访客使用后台「系统设置 → 界面语言」的默认值
+- 服务端错误消息同样跟随语言：优先 `?lang=en`，其次 `tn_lang` Cookie，最后 `Accept-Language`
+- 站点名称、分类、卡片、公告等内容属于管理员录入的数据，不会被自动翻译
+
+翻译源文件：
+
+| 位置 | 作用 |
+|---|---|
+| `internal/i18n/i18n.go` | 服务端错误消息的英文对照表 |
+| `internal/web/assets/i18n.js` | 前端静态文案与动态消息的英文对照表 |
+
+新增文案时，以中文原文为键补上英文值即可；缺少翻译时自动回退中文，不会报错。
 
 ## 图片存储与缓存
 
@@ -226,6 +248,7 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 ├── cmd/teamnav/main.go          # 启动、配置、优雅退出
 ├── internal
 │   ├── auth/                    # 会话 Cookie、bcrypt、登录
+│   ├── i18n/                    # 服务端消息的中英对照
 │   ├── imgcache/                # 字节上限 LRU
 │   ├── model/                   # 实体定义
 │   ├── server/                  # 路由、API、中间件、静态资源
@@ -233,7 +256,7 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 │   └── web/                     # go:embed 的前端（Cocoon UI）
 │       ├── index.html           # 导航首页
 │       ├── admin.html           # 管理后台
-│       └── assets/{app,admin}.css|js
+│       └── assets/{app,admin}.css|js, i18n.js
 ├── Dockerfile                   # 多阶段构建，非 root 运行
 ├── docker-compose.yml
 └── .github/workflows/           # CI + GHCR 镜像 + 全平台二进制发布

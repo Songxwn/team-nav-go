@@ -730,6 +730,7 @@ var editableSettings = map[string]bool{
 	"noticeInterval": true,
 	"sessionTTL":     true,
 	"accent":         true,
+	"language":       true,
 }
 
 func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
@@ -777,6 +778,11 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 			case "indigo", "emerald", "rose", "amber", "ocean":
 			default:
 				writeError(w, http.StatusBadRequest, "主题色不正确")
+				return
+			}
+		case "language":
+			if v != "zh" && v != "en" {
+				writeError(w, http.StatusBadRequest, "语言取值不正确")
 				return
 			}
 		case "siteLogo":

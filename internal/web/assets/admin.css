@@ -834,6 +834,27 @@
   background: var(--accent-softer);
 }
 
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+
+.about-link:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--panel-solid);
+}
+
 /* Image library ---------------------------------------------------------- */
 
 .upload-zone {

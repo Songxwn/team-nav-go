@@ -76,6 +76,9 @@
         </button>
         <span class="date-chip"><span class="pulse"></span><span id="todayLabel"></span></span>
         <span class="spacer"></span>
+        <button class="icon-button lang-toggle" type="button" id="langToggle" aria-label="切换语言" title="切换语言">
+          <span id="langLabel">EN</span>
+        </button>
         <button class="icon-button theme-toggle" type="button" id="themeToggle" aria-label="切换深浅色主题" title="切换主题">
           <svg class="icon sun"><use href="#i-sun"/></svg>
           <svg class="icon moon"><use href="#i-moon"/></svg>
@@ -92,9 +95,9 @@
           <h1>把团队的每一个服务<br><em>放在顺手的位置</em></h1>
           <p id="heroSubtitle">团队服务，一站式入口</p>
           <div class="hero-stats">
-            <span class="stat-pill"><b id="statServices">0</b> 个服务</span>
-            <span class="stat-pill"><b id="statCategories">0</b> 个分类</span>
-            <span class="stat-pill"><b id="statClicks">0</b> 次访问</span>
+            <span class="stat-pill"><b id="statServices">0</b> <span id="unitServices">个服务</span></span>
+            <span class="stat-pill"><b id="statCategories">0</b> <span id="unitCategories">个分类</span></span>
+            <span class="stat-pill"><b id="statClicks">0</b> <span id="unitClicks">次访问</span></span>
           </div>
         </div>
         <div class="hero-panel">
@@ -139,11 +142,7 @@
 
       <footer class="page-foot">
         <span id="footerText">Built with Go · SQLite</span>
-        <span>
-          <span id="footerVersion">TeamNav</span>
-          <span class="dot">·</span>
-          <a href="https://github.com/Songxwn/team-nav-go" target="_blank" rel="noopener">GitHub</a>
-        </span>
+        <span id="footerVersion">TeamNav</span>
       </footer>
     </main>
   </div>
@@ -240,6 +239,7 @@
 
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
+  <script src="/assets/i18n.js" defer></script>
   <script src="/assets/app.js" defer></script>
 </body>
 </html>

@@ -221,7 +221,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "message": "提交成功，等待管理员审核"})
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "message": s.localize(r, "提交成功，等待管理员审核")})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

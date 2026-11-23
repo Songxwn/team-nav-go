@@ -2,6 +2,10 @@
 (function () {
   "use strict";
 
+  var I18N = window.I18N;
+  var t = I18N.t;
+  var plural = I18N.plural;
+
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
 
@@ -65,10 +69,10 @@
     var res = await fetch(path, Object.assign({}, opts, { headers: headers }));
     if (res.status === 401) {
       window.location.href = "/?login=1";
-      throw new Error("需要登录");
+      throw new Error(t("需要登录"));
     }
     var data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || "请求失败（" + res.status + "）");
+    if (!res.ok) throw new Error(data.error || t("请求失败（{status}）", { status: res.status }));
     return data;
   }
 
@@ -132,7 +136,7 @@
   function pathOf(id) {
     var map = categoryMap();
     var node = map.get(id);
-    if (!node) return "未分类";
+    if (!node) return t("未分类");
     var parts = [node.name];
     var parent = map.get(node.parentId);
     while (parent) {
@@ -199,6 +203,14 @@
 
   async function init() {
     bindEvents();
+    updateLangButton();
+    I18N.onChange(function () {
+      updateLangButton();
+      applySiteChrome(true);
+      renderAll();
+      switchView(state.view);
+      I18N.localize(document.body);
+    });
     try {
       var me = await api("/api/auth/me");
       if (!me.user || me.user.role !== "admin") {
@@ -236,15 +248,20 @@
     renderAll();
   }
 
-  function applySiteChrome() {
+  function applySiteChrome(skipForm) {
     var settings = state.settings;
+    if (!I18N.hasExplicitChoice() && (settings.language === "zh" || settings.language === "en")) {
+      I18N.setLang(settings.language, { persist: false, silent: true });
+      updateLangButton();
+    }
     document.documentElement.setAttribute("data-accent", settings.accent || "indigo");
     if (settings.siteName) {
-      document.title = "管理后台 · " + settings.siteName;
+      document.title = t("管理后台 · {name}", { name: settings.siteName });
       $$(".admin-side .brand-text strong").forEach(function (node) { node.textContent = settings.siteName; });
     }
     $("#appVersion").textContent = state.version;
-    fillSettingsForm();
+    if (!skipForm) fillSettingsForm();
+    I18N.localize(document.body);
   }
 
   function renderAll() {
@@ -257,6 +274,7 @@
     renderUsers();
     renderImages();
     renderPendingBadge();
+    I18N.localize(document.body);
   }
 
   function renderPendingBadge() {
@@ -272,18 +290,19 @@
   function renderStats() {
     var stats = state.stats;
     var items = [
-      { label: "服务卡片", value: stats.cards || 0, sub: (stats.pending || 0) + " 个待审核", icon: "card" },
+      { label: "服务卡片", value: stats.cards || 0, sub: t("{n} 个待审核", { n: stats.pending || 0 }), icon: "card" },
       { label: "分类", value: stats.categories || 0, sub: "最多三级结构", icon: "folder" },
       { label: "累计点击", value: formatCount(stats.totalClicks || 0), sub: "来自全部卡片", icon: "bolt" },
       { label: "今日访问", value: formatCount(stats.viewsToday || 0), sub: "首页打开次数", icon: "layout" },
       { label: "用户", value: stats.users || 0, sub: "含管理员账号", icon: "users" },
-      { label: "数据库", value: formatBytes(stats.databaseSize || 0), sub: (stats.images || 0) + " 张图片", icon: "image" }
+      { label: "数据库", value: formatBytes(stats.databaseSize || 0), sub: plural(stats.images || 0, "{n} 张图片", "{n} image", "{n} images"), icon: "image" }
     ];
     $("#statGrid").innerHTML = items.map(function (item) {
       return '<div class="stat-card"><span class="stat-label">' + icon(item.icon, 14) + esc(item.label) +
         '</span><strong class="stat-value">' + esc(item.value) + '</strong><span class="stat-sub">' +
         esc(item.sub) + "</span></div>";
     }).join("");
+    I18N.localize($("#statGrid"));
   }
 
   function formatCount(n) {
@@ -318,6 +337,9 @@
         '</td><td><span class="badge-status ' + (card.status === "approved" ? "ok" : "pending") + '">' +
         (card.status === "approved" ? "已上线" : "待审核") + "</span></td><td>" + formatDate(card.createdAt) + "</td></tr>";
     }).join("") : '<tr><td colspan="4"><div class="image-empty">还没有卡片</div></td></tr>';
+    I18N.localize($("#viewsChart"));
+    I18N.localize($("#topCards"));
+    I18N.localize($("#recentCards"));
   }
 
   // -------------------------------------------------------------------------
@@ -355,6 +377,7 @@
         '<button class="mini-btn danger" type="button" data-delete-card="' + card.id + '" title="删除">' + icon("trash", 15) + "</button>" +
         "</div></td></tr>";
     }).join("") : '<tr><td colspan="7"><div class="image-empty">没有匹配的卡片</div></td></tr>';
+    I18N.localize($("#cardTable"));
 
     $$("[data-edit-card]").forEach(function (button) {
       button.addEventListener("click", function () { openCardDialog(findCard(Number(button.dataset.editCard))); });
@@ -363,10 +386,10 @@
       button.addEventListener("click", function () {
         var card = findCard(Number(button.dataset.deleteCard));
         if (!card) return;
-        confirmAction("删除卡片？", "「" + card.name + "」将被永久删除。", async function () {
+        confirmAction(t("删除卡片？"), t("「{name}」将被永久删除。", { name: card.name }), async function () {
           await api("/api/admin/cards/" + card.id, { method: "DELETE" });
           state.cards = state.cards.filter(function (c) { return c.id !== card.id; });
-          toast("卡片已删除", "success");
+          toast(t("卡片已删除"), "success");
           await refreshStats();
           renderCards();
           renderOverview();
@@ -380,7 +403,7 @@
         try {
           var data = await api("/api/admin/cards/" + card.id + "/approve", { method: "POST", body: "{}" });
           Object.assign(card, data.card);
-          toast("已通过审核", "success");
+          toast(t("已通过审核"), "success");
           await refreshStats();
           renderCards();
           renderOverview();
@@ -436,7 +459,7 @@
   function openCardDialog(card) {
     formError("cardError", "");
     $("#cardId").value = card ? card.id : "";
-    $("#cardDialogTitle").textContent = card ? "编辑卡片" : "新建卡片";
+    $("#cardDialogTitle").textContent = card ? t("编辑卡片") : t("新建卡片");
     $("#cardName").value = card ? card.name : "";
     $("#cardURL").value = card ? card.url : "";
     $("#cardDesc").value = card ? card.description : "";
@@ -482,7 +505,7 @@
       status: $("#cardStatus").value
     };
     if (!payload.name || !payload.categoryId) {
-      formError("cardError", "请填写名称并选择分类");
+      formError("cardError", t("请填写名称并选择分类"));
       return;
     }
     var button = $("#cardSubmit");
@@ -499,7 +522,7 @@
         state.cards.push(data.card);
       }
       closeDialog("cardDialog");
-      toast(id ? "卡片已更新" : "卡片已创建", "success");
+      toast(t(id ? "卡片已更新" : "卡片已创建"), "success");
       await refreshStats();
       renderCards();
     } catch (err) {
@@ -520,12 +543,14 @@
       var current = cardSelect.value;
       cardSelect.innerHTML = options;
       if (current) cardSelect.value = current;
+      I18N.localize(cardSelect);
     }
     var filter = $("#cardCategoryFilter");
     if (filter) {
       var currentFilter = state.cardFilters.categoryId;
       filter.innerHTML = '<option value="">全部分类</option>' + options;
       filter.value = currentFilter || "";
+      I18N.localize(filter);
     }
     var parent = $("#categoryParent");
     if (parent) {
@@ -537,6 +562,7 @@
         return '<option value="' + cat.id + '">' + esc(prefix + cat.name) + "</option>";
       }).join("");
       parent.value = currentParent || "0";
+      I18N.localize(parent);
     }
   }
 
@@ -557,13 +583,14 @@
         (index >= siblings.length - 1 ? "disabled" : "") + ">" + icon("down", 14) + "</button>" +
         "</div></td><td><strong>" + esc(prefix + (cat.icon ? cat.icon + " " : "") + cat.name) + "</strong></td><td>" +
         (cat.description ? esc(cat.description) : '<span style="color:var(--faint)">—</span>') + "</td><td>" +
-        ("第 " + (cat._depth + 1) + " 级") + "</td><td>" + (cat.cardCount || 0) + "</td><td>" +
+        esc(t("第 {n} 级", { n: cat._depth + 1 })) + "</td><td>" + (cat.cardCount || 0) + "</td><td>" +
         '<span class="badge-status ' + (cat.visible ? "ok" : "hidden") + '">' + (cat.visible ? "可见" : "隐藏") +
         '</span></td><td><div class="row-actions">' +
         '<button class="mini-btn" type="button" data-edit-cat="' + cat.id + '" title="编辑">' + icon("edit", 15) + "</button>" +
         '<button class="mini-btn danger" type="button" data-delete-cat="' + cat.id + '" title="删除">' + icon("trash", 15) + "</button>" +
         "</div></td></tr>";
     }).join("") : '<tr><td colspan="7"><div class="image-empty">还没有分类</div></td></tr>';
+    I18N.localize($("#categoryTable"));
 
     $$("[data-edit-cat]").forEach(function (button) {
       button.addEventListener("click", function () { openCategoryDialog(findCategory(Number(button.dataset.editCat))); });
@@ -572,9 +599,9 @@
       button.addEventListener("click", function () {
         var cat = findCategory(Number(button.dataset.deleteCat));
         if (!cat) return;
-        confirmAction("删除分类？", "「" + cat.name + "」及其子分类、卡片都会被删除。", async function () {
+        confirmAction(t("删除分类？"), t("「{name}」及其子分类、卡片都会被删除。", { name: cat.name }), async function () {
           await api("/api/admin/categories/" + cat.id, { method: "DELETE" });
-          toast("分类已删除", "success");
+          toast(t("分类已删除"), "success");
           await loadAll();
         });
       });
@@ -613,7 +640,7 @@
     formError("categoryError", "");
     renderCategorySelects();
     $("#categoryId").value = cat ? cat.id : "";
-    $("#categoryDialogTitle").textContent = cat ? "编辑分类" : "新建分类";
+    $("#categoryDialogTitle").textContent = cat ? t("编辑分类") : t("新建分类");
     $("#categoryName").value = cat ? cat.name : "";
     $("#categoryIcon").value = cat ? cat.icon : "📁";
     $("#categoryDesc").value = cat ? cat.description : "";
@@ -649,7 +676,7 @@
       visible: $("#categoryVisible").checked
     };
     if (!payload.name) {
-      formError("categoryError", "请填写分类名称");
+      formError("categoryError", t("请填写分类名称"));
       return;
     }
     var button = $("#categorySubmit");
@@ -660,7 +687,7 @@
         body: JSON.stringify(payload)
       });
       closeDialog("categoryDialog");
-      toast(id ? "分类已更新" : "分类已创建", "success");
+      toast(t(id ? "分类已更新" : "分类已创建"), "success");
       await loadAll();
     } catch (err) {
       formError("categoryError", err.message);
@@ -684,6 +711,7 @@
         '<button class="mini-btn danger" type="button" data-delete-notice="' + notice.id + '">' + icon("trash", 15) + "</button>" +
         "</div></td></tr>";
     }).join("") : '<tr><td colspan="5"><div class="image-empty">还没有公告</div></td></tr>';
+    I18N.localize($("#noticeTable"));
 
     $$("[data-edit-notice]").forEach(function (button) {
       button.addEventListener("click", function () { openNoticeDialog(findNotice(Number(button.dataset.editNotice))); });
@@ -692,18 +720,18 @@
       button.addEventListener("click", function () {
         var notice = findNotice(Number(button.dataset.deleteNotice));
         if (!notice) return;
-        confirmAction("删除公告？", "「" + notice.title + "」将不再显示。", async function () {
+        confirmAction(t("删除公告？"), t("「{title}」将不再显示。", { title: notice.title }), async function () {
           await api("/api/admin/notices/" + notice.id, { method: "DELETE" });
           state.notices = state.notices.filter(function (n) { return n.id !== notice.id; });
           renderNotices();
-          toast("公告已删除", "success");
+          toast(t("公告已删除"), "success");
         });
       });
     });
   }
 
   function levelLabel(level) {
-    return { info: "信息", success: "成功", warning: "提醒", danger: "重要" }[level] || level;
+    return t({ info: "信息", success: "成功", warning: "提醒", danger: "重要" }[level] || level);
   }
 
   function findNotice(id) {
@@ -713,7 +741,7 @@
   function openNoticeDialog(notice) {
     formError("noticeError", "");
     $("#noticeId").value = notice ? notice.id : "";
-    $("#noticeDialogTitle").textContent = notice ? "编辑公告" : "新建公告";
+    $("#noticeDialogTitle").textContent = notice ? t("编辑公告") : t("新建公告");
     $("#noticeTitle").value = notice ? notice.title : "";
     $("#noticeContent").value = notice ? notice.content : "";
     $("#noticeLevel").value = notice ? notice.level : "info";
@@ -745,7 +773,7 @@
       expiresAt: expires ? Math.floor(new Date(expires).getTime() / 1000) : 0
     };
     if (!payload.title) {
-      formError("noticeError", "请填写公告标题");
+      formError("noticeError", t("请填写公告标题"));
       return;
     }
     try {
@@ -761,7 +789,7 @@
       }
       closeDialog("noticeDialog");
       renderNotices();
-      toast(id ? "公告已更新" : "公告已创建", "success");
+      toast(t(id ? "公告已更新" : "公告已创建"), "success");
     } catch (err) {
       formError("noticeError", err.message);
     }
@@ -784,6 +812,7 @@
           '<button class="mini-btn danger" type="button" data-delete-user="' + user.id + '" title="删除">' + icon("trash", 15) + "</button>") +
         "</div></td></tr>";
     }).join("") : '<tr><td colspan="4"><div class="image-empty">还没有用户</div></td></tr>';
+    I18N.localize($("#userTable"));
 
     $$("[data-edit-user]").forEach(function (button) {
       button.addEventListener("click", function () { openUserDialog(findUser(Number(button.dataset.editUser))); });
@@ -795,7 +824,7 @@
         $("#resetError").classList.remove("show");
         $("#resetPassword").value = "";
         $("#resetUserId").value = user.id;
-        $("#resetTarget").textContent = "为 " + (user.displayName || user.username) + " 设置新密码";
+        $("#resetTarget").textContent = t("为 {name} 设置新密码", { name: user.displayName || user.username });
         openDialog("passwordDialog");
       });
     });
@@ -803,11 +832,11 @@
       button.addEventListener("click", function () {
         var user = findUser(Number(button.dataset.deleteUser));
         if (!user) return;
-        confirmAction("删除用户？", "「" + (user.displayName || user.username) + "」将无法再登录。", async function () {
+        confirmAction(t("删除用户？"), t("「{name}」将无法再登录。", { name: user.displayName || user.username }), async function () {
           await api("/api/admin/users/" + user.id, { method: "DELETE" });
           state.users = state.users.filter(function (u) { return u.id !== user.id; });
           renderUsers();
-          toast("用户已删除", "success");
+          toast(t("用户已删除"), "success");
           await refreshStats();
         });
       });
@@ -821,7 +850,7 @@
   function openUserDialog(user) {
     formError("userError", "");
     $("#userId").value = user ? user.id : "";
-    $("#userDialogTitle").textContent = user ? "编辑用户" : "新建用户";
+    $("#userDialogTitle").textContent = user ? t("编辑用户") : t("新建用户");
     $("#userUsername").value = user ? user.username : "";
     $("#userUsername").disabled = Boolean(user);
     $("#userDisplay").value = user ? user.displayName : "";
@@ -842,7 +871,7 @@
     if (!id) {
       payload.password = $("#userPassword").value;
       if (!payload.username || !payload.password) {
-        formError("userError", "请填写用户名和初始密码");
+        formError("userError", t("请填写用户名和初始密码"));
         return;
       }
     }
@@ -859,7 +888,7 @@
       }
       closeDialog("userDialog");
       renderUsers();
-      toast(id ? "用户已更新" : "用户已创建", "success");
+      toast(t(id ? "用户已更新" : "用户已创建"), "success");
     } catch (err) {
       formError("userError", err.message);
     }
@@ -870,7 +899,7 @@
     var id = $("#resetUserId").value;
     var password = $("#resetPassword").value;
     if (password.length < 8) {
-      formError("resetError", "密码至少 8 位");
+      formError("resetError", t("密码至少 8 位"));
       return;
     }
     try {
@@ -879,7 +908,7 @@
         body: JSON.stringify({ password: password })
       });
       closeDialog("passwordDialog");
-      toast("密码已重置", "success");
+      toast(t("密码已重置"), "success");
     } catch (err) {
       formError("resetError", err.message);
     }
@@ -889,7 +918,7 @@
   // Images
 
   function renderImages() {
-    $("#imageCount").textContent = state.images.length + " 张";
+    $("#imageCount").textContent = plural(state.images.length, "{n} 张", "{n} image", "{n} images");
     $("#imageGrid").innerHTML = state.images.length ? state.images.map(function (image) {
       return '<div class="image-tile"><div class="thumb"><img src="/api/images/' + esc(image.id) +
         '" alt="' + esc(image.name) + '" loading="lazy"></div><div class="tile-meta"><span>' +
@@ -899,13 +928,14 @@
         '<button type="button" data-delete-image="' + esc(image.id) + '" title="删除">' + icon("trash", 13) + "</button>" +
         "</div></div>";
     }).join("") : '<div class="image-empty">还没有上传图片</div>';
+    I18N.localize($("#imageGrid"));
 
     $$("[data-copy-image]").forEach(function (button) {
       button.addEventListener("click", async function () {
         var url = window.location.origin + "/api/images/" + button.dataset.copyImage;
         try {
           await navigator.clipboard.writeText(url);
-          toast("图片地址已复制", "success");
+          toast(t("图片地址已复制"), "success");
         } catch (e) {
           toast(url);
         }
@@ -914,11 +944,11 @@
     $$("[data-delete-image]").forEach(function (button) {
       button.addEventListener("click", function () {
         var id = button.dataset.deleteImage;
-        confirmAction("删除图片？", "引用该图片的卡片图标会失效。", async function () {
+        confirmAction(t("删除图片？"), t("引用该图片的卡片图标会失效。"), async function () {
           await api("/api/admin/images/" + id, { method: "DELETE" });
           state.images = state.images.filter(function (img) { return img.id !== id; });
           renderImages();
-          toast("图片已删除", "success");
+          toast(t("图片已删除"), "success");
         });
       });
     });
@@ -927,7 +957,7 @@
   async function uploadImage(file, onDone) {
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      toast("图片不能超过 2MB", "error");
+      toast(t("图片不能超过 2MB"), "error");
       return;
     }
     var form = new FormData();
@@ -936,7 +966,7 @@
       var data = await api("/api/admin/images", { method: "POST", body: form });
       state.images.unshift(data.image);
       renderImages();
-      toast(data.deduped ? "图片已存在，直接复用" : "图片上传成功", "success");
+      toast(t(data.deduped ? "图片已存在，直接复用" : "图片上传成功"), "success");
       if (onDone) onDone(data.url);
     } catch (err) {
       toast(err.message, "error");
@@ -951,6 +981,7 @@
     $("#setSiteName").value = s.siteName || "";
     $("#setSiteSubtitle").value = s.siteSubtitle || "";
     $("#setWelcome").value = s.welcomeText || "";
+    $("#setLanguage").value = s.language === "en" ? "en" : "zh";
     $("#setAccent").value = s.accent || "indigo";
     $("#setInterval").value = s.noticeInterval || 8;
     $("#setSessionTTL").value = s.sessionTTL || 66;
@@ -978,6 +1009,7 @@
       siteName: $("#setSiteName").value.trim(),
       siteSubtitle: $("#setSiteSubtitle").value.trim(),
       welcomeText: $("#setWelcome").value.trim(),
+      language: $("#setLanguage").value,
       accent: $("#setAccent").value,
       noticeInterval: String($("#setInterval").value || 8),
       sessionTTL: String($("#setSessionTTL").value || 66),
@@ -989,8 +1021,12 @@
     try {
       var data = await api("/api/admin/settings", { method: "PUT", body: JSON.stringify(payload) });
       state.settings = data.settings;
-      applySiteChrome();
-      toast("设置已保存", "success");
+      if (I18N.lang() !== payload.language) {
+        I18N.setLang(payload.language);
+      } else {
+        applySiteChrome();
+      }
+      toast(t("设置已保存"), "success");
     } catch (err) {
       toast(err.message, "error");
     }
@@ -1001,7 +1037,7 @@
     var current = $("#pwdCurrent").value;
     var next = $("#pwdNew").value;
     if (next.length < 8) {
-      toast("新密码至少 8 位", "error");
+      toast(t("新密码至少 8 位"), "error");
       return;
     }
     try {
@@ -1010,7 +1046,7 @@
         body: JSON.stringify({ currentPassword: current, newPassword: next })
       });
       $("#passwordForm").reset();
-      toast("密码已更新", "success");
+      toast(t("密码已更新"), "success");
     } catch (err) {
       toast(err.message, "error");
     }
@@ -1018,6 +1054,20 @@
 
   // -------------------------------------------------------------------------
   // Navigation and events
+
+  function updateLangButton() {
+    var button = $("#langToggle");
+    if (!button) return;
+    var label = $("#langLabel");
+    if (label) label.textContent = I18N.lang() === "en" ? "中" : "EN";
+    var title = t("切换语言");
+    button.title = title;
+    button.setAttribute("aria-label", title);
+  }
+
+  function toggleLang() {
+    I18N.setLang(I18N.lang() === "en" ? "zh" : "en");
+  }
 
   function switchView(view) {
     state.view = view;
@@ -1028,8 +1078,8 @@
       panel.classList.toggle("active", panel.dataset.panel === view);
     });
     var titles = state.viewTitles[view] || [view, view];
-    $("#viewTitle").textContent = titles[0];
-    $("#crumb").textContent = titles[1];
+    $("#viewTitle").textContent = t(titles[0]);
+    $("#crumb").textContent = t(titles[1]);
     document.body.classList.remove("admin-nav-open");
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (view === "overview") refreshStats().catch(function () {});
@@ -1058,6 +1108,8 @@
       document.documentElement.setAttribute("data-theme", next);
       try { localStorage.setItem("tn-theme", next); } catch (e) { /* ignore */ }
     });
+
+    $("#langToggle").addEventListener("click", toggleLang);
 
     $("#logoutButton").addEventListener("click", async function () {
       try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch (e) { /* ignore */ }

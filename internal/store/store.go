@@ -186,6 +186,7 @@ func (s *Store) seed(adminUser, adminPass string) error {
 		"noticeInterval": "8",
 		"sessionTTL":     "66",
 		"accent":         "indigo",
+		"language":       "zh",
 	}
 	for k, v := range defaults {
 		if _, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v); err != nil {

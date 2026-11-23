@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Songxwn/team-nav-go/internal/auth"
+	"github.com/Songxwn/team-nav-go/internal/i18n"
 	"github.com/Songxwn/team-nav-go/internal/imgcache"
 	"github.com/Songxwn/team-nav-go/internal/model"
 	"github.com/Songxwn/team-nav-go/internal/store"
@@ -152,6 +153,11 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
+		// Wrap the writer first so errors written anywhere below (including in
+		// this middleware) can be localised for the current request.
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK, lang: requestLang(r)}
+		w = rec
+
 		// Resolve the session once per request and expose it to handlers.
 		if user := s.auth.User(r.Context(), r); user != nil {
 			r = r.WithContext(context.WithValue(r.Context(), userKey, user))
@@ -182,7 +188,6 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
 		if !strings.HasPrefix(r.URL.Path, "/api/images/") {
@@ -262,11 +267,43 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	lang   string
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+// Lang exposes the request language to writeError without threading the
+// request through every handler call site.
+func (r *statusRecorder) Lang() string { return r.lang }
+
+// requestLang picks the response language from the explicit ?lang= override,
+// the UI cookie, or the first Accept-Language tag.
+func requestLang(r *http.Request) string {
+	if v := r.URL.Query().Get("lang"); v == i18n.English || v == i18n.Chinese {
+		return v
+	}
+	if c, err := r.Cookie("tn_lang"); err == nil {
+		if c.Value == i18n.English || c.Value == i18n.Chinese {
+			return c.Value
+		}
+	}
+	if tag := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Accept-Language"), ",")[0])); tag != "" {
+		if strings.HasPrefix(tag, i18n.English) {
+			return i18n.English
+		}
+		if strings.HasPrefix(tag, i18n.Chinese) {
+			return i18n.Chinese
+		}
+	}
+	return i18n.Chinese
+}
+
+// localize translates a message for the language negotiated for this request.
+func (s *Server) localize(r *http.Request, msg string) string {
+	return i18n.Translate(requestLang(r), msg)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -279,6 +316,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
+	if lw, ok := w.(interface{ Lang() string }); ok {
+		msg = i18n.Translate(lw.Lang(), msg)
+	}
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
