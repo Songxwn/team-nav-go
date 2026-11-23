@@ -953,6 +953,7 @@
     $("#setWelcome").value = s.welcomeText || "";
     $("#setAccent").value = s.accent || "indigo";
     $("#setInterval").value = s.noticeInterval || 8;
+    $("#setSessionTTL").value = s.sessionTTL || 66;
     $("#setLogo").value = s.siteLogo || "";
     $("#setFooter").value = s.footerText || "";
     $("#setAllowApply").checked = s.allowApply !== "0";
@@ -979,6 +980,7 @@
       welcomeText: $("#setWelcome").value.trim(),
       accent: $("#setAccent").value,
       noticeInterval: String($("#setInterval").value || 8),
+      sessionTTL: String($("#setSessionTTL").value || 66),
       siteLogo: $("#setLogo").value.trim(),
       footerText: $("#setFooter").value.trim(),
       allowApply: $("#setAllowApply").checked ? "1" : "0",

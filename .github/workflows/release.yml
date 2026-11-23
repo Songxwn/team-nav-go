@@ -1,0 +1,133 @@
+name: Release binaries
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          name="teamnav_${VERSION}_${GOOS}_${GOARCH}"
+          rm -rf dist && mkdir -p dist
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION}" \
+            -o "dist/teamnav${ext}" ./cmd/teamnav
+          cp README.md LICENSE dist/
+          if [ "$GOOS" = "windows" ]; then
+            (cd dist && zip -q -r "../${name}.zip" .)
+          else
+            tar -C dist -czf "${name}.tar.gz" .
+          fi
+          rm -rf dist
+          ls -lh "${name}".*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: teamnav-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: teamnav_*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## TeamNav Go ${{ github.ref_name }}
+
+            单二进制、零依赖的团队服务导航，内置 SQLite 与图片缓存。
+
+            ### 下载
+
+            | 平台 | 架构 | 文件 |
+            |---|---|---|
+            | Linux | x86_64 | `teamnav_*_linux_amd64.tar.gz` |
+            | Linux | arm64 | `teamnav_*_linux_arm64.tar.gz` |
+            | macOS | Intel | `teamnav_*_darwin_amd64.tar.gz` |
+            | macOS | Apple Silicon | `teamnav_*_darwin_arm64.tar.gz` |
+            | Windows | x86_64 | `teamnav_*_windows_amd64.zip` |
+            | Windows | arm64 | `teamnav_*_windows_arm64.zip` |
+
+            校验完整性：
+
+            ```bash
+            sha256sum -c SHA256SUMS
+            ```
+
+            ### 容器镜像
+
+            ```bash
+            docker pull ghcr.io/songxwn/team-nav-go:${{ github.ref_name }}
+            ```
+
+            运行：`./teamnav -data ./data`，浏览器打开 <http://localhost:8080>。
+            首次启动请通过 `TEAMNAV_ADMIN_PASSWORD` 设置管理员密码。

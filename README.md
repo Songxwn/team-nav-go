@@ -5,6 +5,7 @@
 
 [![CI](https://github.com/Songxwn/team-nav-go/actions/workflows/ci.yml/badge.svg)](https://github.com/Songxwn/team-nav-go/actions/workflows/ci.yml)
 [![Container](https://github.com/Songxwn/team-nav-go/actions/workflows/docker.yml/badge.svg)](https://github.com/Songxwn/team-nav-go/actions/workflows/docker.yml)
+[![Release](https://github.com/Songxwn/team-nav-go/actions/workflows/release.yml/badge.svg)](https://github.com/Songxwn/team-nav-go/actions/workflows/release.yml)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go)](https://go.dev)
 [![SQLite](https://img.shields.io/badge/SQLite-embedded-003B57?logo=sqlite)](https://sqlite.org)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
@@ -44,7 +45,7 @@
 - 公告管理：级别、启用状态、截止时间
 - 用户与权限：管理员 / 普通成员、重置密码、最后一名管理员保护
 - 图片库：上传、拖拽、复制地址、删除、内容去重
-- 系统设置：站点名称、副标题、欢迎语、LOGO、主题色、公告间隔、页脚
+- 系统设置：站点名称、副标题、欢迎语、LOGO、主题色、公告间隔、页脚、登录会话有效期
 - 数据备份：一键下载 SQLite 快照（图片也在库内）
 
 ## 快速开始
@@ -106,6 +107,21 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 
 管理员账号只在**空数据库**首次启动时创建。如需重置密码，可删除数据卷重新初始化，或进入后台用另一名管理员重置。
 
+### 站点设置（存于数据库，后台可改）
+
+| 设置项 | 默认值 | 说明 |
+|---|---|---|
+| `siteName` | 星云导航 | 站点名称 |
+| `siteSubtitle` | 团队服务，一站式入口 | 副标题 |
+| `siteLogo` | 空 | LOGO 图片地址或上传的图片 |
+| `welcomeText` | 今天也要高效出发 | 首页欢迎语 |
+| `footerText` | Built with Go · SQLite · Cocoon UI | 页脚文字 |
+| `accent` | indigo | 主题色：indigo / emerald / rose / amber / ocean |
+| `noticeInterval` | 8 | 公告轮播间隔（3-120 秒） |
+| `allowApply` | 1 | 是否允许访客提交卡片 |
+| `showClicks` | 1 | 卡片是否显示点击次数 |
+| `sessionTTL` | 66 | 登录会话有效期（1-365 天），修改后对新登录生效 |
+
 ## 图片存储与缓存
 
 图片不落磁盘文件，而是以 BLOB 保存在 SQLite 的 `images` 表中，并以 SHA-256 去重：
@@ -126,12 +142,43 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 - **协商缓存**：`If-None-Match` 直接返回 `304 Not Modified`
 - **可观测**：`GET /api/healthz` 返回缓存条目数、占用字节、命中/未命中计数
 
-## GitHub Actions 与容器仓库
+## GitHub Actions 与产物
 
-仓库内置两条流水线：
+仓库内置三条流水线：
 
 1. **CI**（`.github/workflows/ci.yml`）：`gofmt` 检查、`go vet`、`go test -race`、静态编译
 2. **Container**（`.github/workflows/docker.yml`）：多架构（amd64 / arm64）构建并推送 GHCR
+3. **Release**（`.github/workflows/release.yml`）：推送 `v*` 标签时交叉编译全平台二进制并发布 GitHub Release
+
+### 预编译二进制
+
+`Release` 流水线为以下平台生成压缩包，并附带 `SHA256SUMS`：
+
+| 平台 | 架构 | 文件 |
+|---|---|---|
+| Linux | amd64 | `teamnav_<version>_linux_amd64.tar.gz` |
+| Linux | arm64 | `teamnav_<version>_linux_arm64.tar.gz` |
+| macOS | amd64 | `teamnav_<version>_darwin_amd64.tar.gz` |
+| macOS | arm64 | `teamnav_<version>_darwin_arm64.tar.gz` |
+| Windows | amd64 | `teamnav_<version>_windows_amd64.zip` |
+| Windows | arm64 | `teamnav_<version>_windows_arm64.zip` |
+
+下载地址：<https://github.com/Songxwn/team-nav-go/releases>
+
+```bash
+# Linux / macOS
+tar -xzf teamnav_<version>_linux_amd64.tar.gz
+./teamnav -data ./data
+
+# 校验
+sha256sum -c SHA256SUMS      # macOS: shasum -a 256 -c SHA256SUMS
+```
+
+发布新版本：
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
 
 镜像地址：
 
@@ -141,7 +188,7 @@ ghcr.io/songxwn/team-nav-go:sha-<commit>
 ghcr.io/songxwn/team-nav-go:v1.0.0
 ```
 
-镜像使用 GitHub 内置 `GITHUB_TOKEN` 推送，无需额外 Secret。首次发布后，在仓库 **Packages** 设置中把镜像可见性改为 Public 即可匿名拉取。
+镜像使用 GitHub 内置 `GITHUB_TOKEN` 推送，无需额外 Secret。仓库为公开仓库时 GHCR 包默认可匿名拉取；若改为私有，可在 **Packages** 设置中调整可见性。
 
 ## API 速览
 
@@ -189,12 +236,12 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 │       └── assets/{app,admin}.css|js
 ├── Dockerfile                   # 多阶段构建，非 root 运行
 ├── docker-compose.yml
-└── .github/workflows/           # CI + GHCR 发布
+└── .github/workflows/           # CI + GHCR 镜像 + 全平台二进制发布
 ```
 
 ## 安全设计
 
-- 密码使用 **bcrypt** 哈希，登录与会话有效期 30 天
+- 密码使用 **bcrypt** 哈希；登录会话默认有效期 **66 天**，可在后台「系统设置」中调整为 1-365 天（仅对之后的新登录生效）
 - 会话 Token 仅以 **SHA-256 摘要**存入数据库，Cookie 为 `HttpOnly` + `SameSite=Lax`
 - 登录、卡片申请按 IP **令牌桶限流**
 - 所有写操作校验 `Origin`，防范跨站请求

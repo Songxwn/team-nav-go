@@ -184,6 +184,7 @@ func (s *Store) seed(adminUser, adminPass string) error {
 		"allowApply":     "1",
 		"showClicks":     "1",
 		"noticeInterval": "8",
+		"sessionTTL":     "66",
 		"accent":         "indigo",
 	}
 	for k, v := range defaults {

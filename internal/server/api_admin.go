@@ -728,6 +728,7 @@ var editableSettings = map[string]bool{
 	"allowApply":     true,
 	"showClicks":     true,
 	"noticeInterval": true,
+	"sessionTTL":     true,
 	"accent":         true,
 }
 
@@ -763,6 +764,12 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 3 || n > 120 {
 				writeError(w, http.StatusBadRequest, "公告切换间隔需为 3-120 秒")
+				return
+			}
+		case "sessionTTL":
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 365 {
+				writeError(w, http.StatusBadRequest, "会话有效期需为 1-365 天")
 				return
 			}
 		case "accent":

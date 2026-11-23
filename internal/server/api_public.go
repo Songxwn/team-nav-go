@@ -236,12 +236,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	user, token, err := s.auth.Login(r.Context(), strings.TrimSpace(req.Username), req.Password)
+	user, token, ttl, err := s.auth.Login(r.Context(), strings.TrimSpace(req.Username), req.Password)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "用户名或密码不正确")
 		return
 	}
-	s.auth.SetCookie(w, token)
+	s.auth.SetCookie(w, token, ttl)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 

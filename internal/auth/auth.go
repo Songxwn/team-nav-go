@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Songxwn/team-nav-go/internal/model"
@@ -18,7 +19,13 @@ import (
 // CookieName is the session cookie used by the web UI.
 const CookieName = "tn_session"
 
-const sessionTTL = 30 * 24 * time.Hour
+// Session lifetime defaults and bounds (in days). The effective value is read
+// from the sessionTTL site setting so operators can tune it in the admin UI.
+const (
+	DefaultSessionTTLDays = 66
+	MinSessionTTLDays     = 1
+	MaxSessionTTLDays     = 365
+)
 
 // Manager creates and validates sessions.
 type Manager struct {
@@ -32,31 +39,46 @@ func NewManager(s *store.Store, secure bool) *Manager {
 	return &Manager{store: s, secure: secure}
 }
 
+// TTL resolves the configured session lifetime, falling back to the default
+// when the setting is missing or out of range.
+func (m *Manager) TTL(ctx context.Context) time.Duration {
+	days := DefaultSessionTTLDays
+	if settings, err := m.store.Settings(ctx); err == nil {
+		if n, err := strconv.Atoi(settings["sessionTTL"]); err == nil &&
+			n >= MinSessionTTLDays && n <= MaxSessionTTLDays {
+			days = n
+		}
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
 // HashToken derives the storage key from a raw token.
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
-// Login verifies the password and returns the raw session token.
-func (m *Manager) Login(ctx context.Context, username, password string) (*model.User, string, error) {
+// Login verifies the password and returns the raw session token together with
+// the lifetime that was applied.
+func (m *Manager) Login(ctx context.Context, username, password string) (*model.User, string, time.Duration, error) {
 	user, hash, err := m.store.UserByUsername(ctx, username)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	if !CheckPassword(hash, password) {
-		return nil, "", errors.New("invalid credentials")
+		return nil, "", 0, errors.New("invalid credentials")
 	}
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(buf)
-	expires := time.Now().Add(sessionTTL).Unix()
+	ttl := m.TTL(ctx)
+	expires := time.Now().Add(ttl).Unix()
 	if err := m.store.CreateSession(ctx, HashToken(token), user.ID, expires); err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
-	return user, token, nil
+	return user, token, ttl, nil
 }
 
 // CheckPassword compares a bcrypt hash with a plaintext password.
@@ -64,8 +86,8 @@ func CheckPassword(hash, password string) bool {
 	return bcryptCompare(hash, password)
 }
 
-// SetCookie writes the session cookie.
-func (m *Manager) SetCookie(w http.ResponseWriter, token string) {
+// SetCookie writes the session cookie with the matching lifetime.
+func (m *Manager) SetCookie(w http.ResponseWriter, token string, ttl time.Duration) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
 		Value:    token,
@@ -73,7 +95,8 @@ func (m *Manager) SetCookie(w http.ResponseWriter, token string) {
 		HttpOnly: true,
 		Secure:   m.secure,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionTTL / time.Second),
+		Expires:  time.Now().Add(ttl),
+		MaxAge:   int(ttl / time.Second),
 	})
 }
 

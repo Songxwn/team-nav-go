@@ -305,6 +305,11 @@
                 <input class="input" id="setInterval" type="number" min="3" max="120">
               </div>
               <div class="field span-2">
+                <label for="setSessionTTL">登录会话有效期（天）</label>
+                <input class="input" id="setSessionTTL" type="number" min="1" max="365">
+                <span class="hint">默认 66 天，可设置 1-365 天；修改仅对之后的新登录生效，已登录会话保持原有效期</span>
+              </div>
+              <div class="field span-2">
                 <label>站点 LOGO</label>
                 <div class="logo-row">
                   <span class="logo-preview" id="logoPreview">✦</span>
