@@ -1983,6 +1983,11 @@ dialog.modal[open] {
   .login-hint {
     font-size: 11px;
   }
+  .input,
+  .select,
+  .textarea {
+    font-size: 16px;
+  }
   .overlay {
     padding: 10px 6px;
   }
