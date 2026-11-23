@@ -58,27 +58,45 @@ func HashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Login verifies the password and returns the raw session token together with
-// the lifetime that was applied.
+// Login verifies a local password and returns the raw session token together
+// with the lifetime that was applied. Accounts provisioned by LDAP or OIDC
+// must authenticate through their provider instead.
 func (m *Manager) Login(ctx context.Context, username, password string) (*model.User, string, time.Duration, error) {
 	user, hash, err := m.store.UserByUsername(ctx, username)
 	if err != nil {
 		return nil, "", 0, err
 	}
+	if user.IsExternal() {
+		return nil, "", 0, ErrExternalAccount
+	}
 	if !CheckPassword(hash, password) {
 		return nil, "", 0, errors.New("invalid credentials")
 	}
+	token, ttl, err := m.SignIn(ctx, user)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	return user, token, ttl, nil
+}
+
+// ErrExternalAccount is returned when a password login targets an account
+// managed by LDAP or OIDC.
+var ErrExternalAccount = errors.New("external account")
+
+// SignIn creates a session for an already authenticated account, including
+// accounts provisioned by an external provider.
+func (m *Manager) SignIn(ctx context.Context, user *model.User) (string, time.Duration, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		return nil, "", 0, err
+		return "", 0, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(buf)
 	ttl := m.TTL(ctx)
 	expires := time.Now().Add(ttl).Unix()
 	if err := m.store.CreateSession(ctx, HashToken(token), user.ID, expires); err != nil {
-		return nil, "", 0, err
+		return "", 0, err
 	}
-	return user, token, ttl, nil
+	return token, ttl, nil
 }
 
 // CheckPassword compares a bcrypt hash with a plaintext password.

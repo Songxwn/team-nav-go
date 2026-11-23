@@ -666,6 +666,19 @@ func (s *Server) handleAdminResetPassword(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "用户编号不正确")
 		return
 	}
+	target, err := s.store.UserByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "用户不存在")
+			return
+		}
+		s.internalError(w, err)
+		return
+	}
+	if target.IsExternal() {
+		writeError(w, http.StatusBadRequest, "外部账号请在身份提供方修改密码")
+		return
+	}
 	var in struct {
 		Password string `json:"password"`
 	}
@@ -691,6 +704,10 @@ func (s *Server) handleAdminOwnPassword(w http.ResponseWriter, r *http.Request) 
 	me := s.currentUser(r)
 	if me == nil {
 		writeError(w, http.StatusUnauthorized, "请先登录")
+		return
+	}
+	if me.IsExternal() {
+		writeError(w, http.StatusBadRequest, "外部账号请在身份提供方修改密码")
 		return
 	}
 	var in struct {
@@ -731,6 +748,57 @@ var editableSettings = map[string]bool{
 	"sessionTTL":     true,
 	"accent":         true,
 	"language":       true,
+
+	"ldapEnabled":         true,
+	"ldapAddr":            true,
+	"ldapStartTLS":        true,
+	"ldapSkipVerify":      true,
+	"ldapBindDN":          true,
+	"ldapBindPassword":    true,
+	"ldapBaseDN":          true,
+	"ldapUserFilter":      true,
+	"ldapUserDN":          true,
+	"ldapUsernameAttr":    true,
+	"ldapDisplayNameAttr": true,
+	"ldapAdminGroup":      true,
+	"ldapDefaultRole":     true,
+	"ldapAutoCreate":      true,
+
+	"oidcEnabled":          true,
+	"oidcName":             true,
+	"oidcIssuer":           true,
+	"oidcClientID":         true,
+	"oidcClientSecret":     true,
+	"oidcRedirectURL":      true,
+	"oidcScopes":           true,
+	"oidcUsernameClaim":    true,
+	"oidcDisplayNameClaim": true,
+	"oidcGroupsClaim":      true,
+	"oidcAdminGroup":       true,
+	"oidcDefaultRole":      true,
+	"oidcAutoCreate":       true,
+}
+
+// secretMask is returned instead of stored secrets. Submitting it unchanged
+// keeps the current value; submitting an empty string clears it.
+const secretMask = "********"
+
+var secretSettings = map[string]bool{
+	"ldapBindPassword": true,
+	"oidcClientSecret": true,
+}
+
+func adminVisibleSettings(all map[string]string) map[string]string {
+	out := make(map[string]string, len(all))
+	for k, v := range all {
+		out[k] = v
+	}
+	for key := range secretSettings {
+		if out[key] != "" {
+			out[key] = secretMask
+		}
+	}
+	return out
 }
 
 func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
@@ -739,7 +807,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	writeJSON(w, http.StatusOK, map[string]any{"settings": adminVisibleSettings(settings)})
 }
 
 func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -747,16 +815,27 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &in) {
 		return
 	}
+	authTouched := false
 	for k, v := range in {
 		if !editableSettings[k] {
+			delete(in, k)
+			continue
+		}
+		if secretSettings[k] && v == secretMask {
+			delete(in, k)
 			continue
 		}
 		if utf8.RuneCountInString(v) > 300 {
 			writeError(w, http.StatusBadRequest, "设置内容过长")
 			return
 		}
+		if strings.HasPrefix(k, "ldap") || strings.HasPrefix(k, "oidc") {
+			authTouched = true
+		}
 		switch k {
-		case "allowApply", "showClicks":
+		case "allowApply", "showClicks",
+			"ldapEnabled", "ldapStartTLS", "ldapSkipVerify", "ldapAutoCreate",
+			"oidcEnabled", "oidcAutoCreate":
 			if v != "0" && v != "1" {
 				writeError(w, http.StatusBadRequest, "开关取值不正确")
 				return
@@ -785,11 +864,34 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 				writeError(w, http.StatusBadRequest, "语言取值不正确")
 				return
 			}
+		case "ldapDefaultRole", "oidcDefaultRole":
+			if v != "member" && v != "admin" {
+				writeError(w, http.StatusBadRequest, "角色不正确")
+				return
+			}
 		case "siteLogo":
 			if !validIconValue(v) {
 				writeError(w, http.StatusBadRequest, "LOGO 地址不正确")
 				return
 			}
+		}
+	}
+	if authTouched {
+		merged, err := s.store.Settings(r.Context())
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		for k, v := range in {
+			merged[k] = v
+		}
+		if err := auth.LDAPConfigFromSettings(merged).Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := auth.OIDCConfigFromSettings(merged).Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 	}
 	if err := s.store.UpdateSettings(r.Context(), in); err != nil {
@@ -801,5 +903,5 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	writeJSON(w, http.StatusOK, map[string]any{"settings": adminVisibleSettings(settings)})
 }

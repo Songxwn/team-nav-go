@@ -45,6 +45,7 @@
 - 卡片管理：搜索、状态筛选、分类筛选、审核、排序、图标上传
 - 公告管理：级别、启用状态、截止时间
 - 用户与权限：管理员 / 普通成员、重置密码、最后一名管理员保护
+- 认证接入：**LDAP / AD** 目录登录与 **OIDC 单点登录（SSO）**，支持组映射管理员、自动开通账号
 - 图片库：上传、拖拽、复制地址、删除、内容去重
 - 系统设置：站点名称、副标题、欢迎语、界面语言、LOGO、主题色、公告间隔、页脚、登录会话有效期
 - 数据备份：一键下载 SQLite 快照（图片也在库内）
@@ -143,6 +144,52 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 | `internal/web/assets/i18n.js` | 前端静态文案与动态消息的英文对照表 |
 
 新增文案时，以中文原文为键补上英文值即可；缺少翻译时自动回退中文，不会报错。
+
+## 企业认证（AD / LDAP 与 SSO）
+
+后台「认证接入」页面可以启用两类企业登录方式，配置保存在 SQLite，无需改环境变量。
+
+### LDAP / Active Directory
+
+支持两种绑定方式，任选其一：
+
+| 方式 | 必填项 | 适用场景 |
+|---|---|---|
+| 服务账号搜索 | 目录地址、服务账号 DN / 密码、Base DN、用户过滤器 | AD 域、OpenLDAP，按 `sAMAccountName` 或 `uid` 搜索 |
+| 直接 DN 绑定 | 目录地址、用户 DN 模板 | AD 的 `{username}@corp.com`，或固定 OU 的 `uid={username},ou=People,dc=corp,dc=com` |
+
+补充说明：
+
+- 地址支持 `ldap://host:389`、`ldaps://host:636`、`host:636`；`ldap://` 可再勾选 StartTLS
+- `用户过滤器` 使用 `{username}` 占位符，AD 常用 `(sAMAccountName={username})`，OpenLDAP 常用 `(uid={username})`
+- `用户名属性` 默认 `uid`，AD 建议 `sAMAccountName`；显示名默认 `displayName`，回退 `cn`
+- 填写「管理员组 DN」后，用户 `memberOf` 命中该组即授予管理员；留空则沿用账号现有角色
+- 支持「自动创建用户」；关闭后首次登录会被拒绝，此前已开通的账号仍可登录
+- 空密码会被直接拒绝，避免 LDAP 匿名绑定；服务账号密码与 SSO Client Secret 在接口中始终以 `********` 返回
+
+### OIDC 单点登录
+
+适用于 Entra ID（Azure AD）、Keycloak、Okta、Authentik、GitLab 等标准 OIDC 提供方：
+
+1. 在身份提供方创建 Web 应用，回调地址填 `https://<你的域名>/api/auth/oidc/callback`
+2. 在「认证接入 → SSO / OIDC」填写 Issuer、Client ID、Client Secret
+3. 按需调整用户名 / 显示名 / 用户组 Claim，以及管理员组名称
+4. 保存并勾选「启用 SSO 登录」，首页登录框会出现统一登录按钮
+
+实现细节：
+
+- 授权码流程 + `state` + `nonce` + PKCE（S256），`state` 一次性存储于 SQLite，10 分钟过期
+- ID Token 通过提供方 JWKS 校验签名、issuer、audience 与 nonce
+- `oidcRedirectURL` 留空时按当前请求域名自动推导；反向代理后建议显式填写，并设置 `TEAMNAV_TRUST_PROXY=1`
+- 用户以 `(issuer, sub)` 作为稳定标识，用户名变更不会重复建号；显示名与组角色每次登录同步
+- 组角色同步不会移除最后一名管理员
+
+### 账号来源与密码
+
+- 本地账号（`source=local`）继续使用用户名密码登录，可在后台重置密码
+- LDAP / SSO 账号首次登录自动创建（可关闭），本地密码为随机值，不能用于密码登录
+- 同名本地账号优先：如果本地已存在同名账号，目录/SSO 登录会以“账号名称已被占用”拒绝，避免目录账号覆盖本地管理员
+- 外部账号的密码修改需在身份提供方完成，后台会隐藏相应入口
 
 ## 图片存储与缓存
 
@@ -247,11 +294,11 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 .
 ├── cmd/teamnav/main.go          # 启动、配置、优雅退出
 ├── internal
-│   ├── auth/                    # 会话 Cookie、bcrypt、登录
+│   ├── auth/                    # 会话 Cookie、bcrypt、LDAP / OIDC 认证
 │   ├── i18n/                    # 服务端消息的中英对照
 │   ├── imgcache/                # 字节上限 LRU
 │   ├── model/                   # 实体定义
-│   ├── server/                  # 路由、API、中间件、静态资源
+│   ├── server/                  # 路由、API、中间件、OIDC 回调、静态资源
 │   ├── store/                   # SQLite schema、查询、种子数据
 │   └── web/                     # go:embed 的前端（Cocoon UI）
 │       ├── index.html           # 导航首页
@@ -265,6 +312,9 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 ## 安全设计
 
 - 密码使用 **bcrypt** 哈希；登录会话默认有效期 **66 天**，可在后台「系统设置」中调整为 1-365 天（仅对之后的新登录生效）
+- LDAP/AD 与 OIDC 账号的本地密码为随机值；密码登录只接受本地账号，目录服务不可用时不会回退为弱校验
+- OIDC 使用一次性 `state`、`nonce` 与 PKCE，服务端校验 ID Token 签名、issuer、audience；LDAP 拒绝空密码匿名绑定
+- 目录/SSO 配置与 Secret 仅管理员可读，接口返回时以 `********` 脱敏，公开 bootstrap 只暴露站点展示项
 - 会话 Token 仅以 **SHA-256 摘要**存入数据库，Cookie 为 `HttpOnly` + `SameSite=Lax`
 - 登录、卡片申请按 IP **令牌桶限流**
 - 所有写操作校验 `Origin`，防范跨站请求

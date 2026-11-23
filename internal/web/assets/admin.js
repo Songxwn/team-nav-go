@@ -28,6 +28,7 @@
       categories: ["分类管理", "分类管理"],
       notices: ["通知公告", "通知公告"],
       users: ["用户与权限", "用户与权限"],
+      auth: ["认证接入", "认证接入"],
       images: ["图片库", "图片库"],
       settings: ["系统设置", "系统设置"]
     }
@@ -214,7 +215,7 @@
     try {
       var me = await api("/api/auth/me");
       if (!me.user || me.user.role !== "admin") {
-        window.location.href = "/?login=1";
+        window.location.href = "/?login=1&redirect=%2Fadmin";
         return;
       }
       state.user = me.user;
@@ -260,7 +261,11 @@
       $$(".admin-side .brand-text strong").forEach(function (node) { node.textContent = settings.siteName; });
     }
     $("#appVersion").textContent = state.version;
-    if (!skipForm) fillSettingsForm();
+    if (!skipForm) {
+      fillSettingsForm();
+      fillAuthForm();
+    }
+    $("#passwordForm").hidden = Boolean(state.user && state.user.source && state.user.source !== "local");
     I18N.localize(document.body);
   }
 
@@ -800,14 +805,18 @@
 
   function renderUsers() {
     $("#userTable").innerHTML = state.users.length ? state.users.map(function (user) {
+      var source = user.source || "local";
+      var sourceLabel = source === "ldap" ? "LDAP" : source === "oidc" ? "SSO" : "本地";
       return '<tr><td><div class="cell-main"><span class="avatar" style="width:32px;height:32px;border-radius:9px">' +
         esc((user.displayName || user.username).slice(0, 1).toUpperCase()) + "</span><div><strong>" +
-        esc(user.displayName || user.username) + "</strong><span>@" + esc(user.username) + "</span></div></div></td><td>" +
+        esc(user.displayName || user.username) + "</strong><span>@" + esc(user.username) +
+        ' · <span class="soft-chip">' + sourceLabel + "</span></span></div></div></td><td>" +
         '<span class="badge-status ' + (user.role === "admin" ? "admin" : "hidden") + '">' +
         (user.role === "admin" ? "管理员" : "普通成员") + "</span></td><td>" + formatDate(user.createdAt) +
         '</td><td><div class="row-actions">' +
         '<button class="mini-btn" type="button" data-edit-user="' + user.id + '" title="编辑">' + icon("edit", 15) + "</button>" +
-        '<button class="mini-btn" type="button" data-reset-user="' + user.id + '" title="重置密码">' + icon("shield", 15) + "</button>" +
+        (source !== "local" ? "" :
+          '<button class="mini-btn" type="button" data-reset-user="' + user.id + '" title="重置密码">' + icon("shield", 15) + "</button>") +
         (state.user && state.user.id === user.id ? "" :
           '<button class="mini-btn danger" type="button" data-delete-user="' + user.id + '" title="删除">' + icon("trash", 15) + "</button>") +
         "</div></td></tr>";
@@ -1032,6 +1041,91 @@
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Authentication settings
+
+  function fillAuthForm() {
+    var s = state.settings;
+    $("#ldapEnabled").checked = s.ldapEnabled === "1";
+    $("#ldapAddr").value = s.ldapAddr || "";
+    $("#ldapStartTLS").checked = s.ldapStartTLS === "1";
+    $("#ldapSkipVerify").checked = s.ldapSkipVerify === "1";
+    $("#ldapBindDN").value = s.ldapBindDN || "";
+    $("#ldapBindPassword").value = s.ldapBindPassword || "";
+    $("#ldapBaseDN").value = s.ldapBaseDN || "";
+    $("#ldapUserDN").value = s.ldapUserDN || "";
+    $("#ldapUserFilter").value = s.ldapUserFilter || "(uid={username})";
+    $("#ldapUsernameAttr").value = s.ldapUsernameAttr || "uid";
+    $("#ldapDisplayNameAttr").value = s.ldapDisplayNameAttr || "displayName";
+    $("#ldapAdminGroup").value = s.ldapAdminGroup || "";
+    $("#ldapDefaultRole").value = s.ldapDefaultRole === "admin" ? "admin" : "member";
+    $("#ldapAutoCreate").checked = s.ldapAutoCreate !== "0";
+
+    $("#oidcEnabled").checked = s.oidcEnabled === "1";
+    $("#oidcName").value = s.oidcName || "SSO";
+    $("#oidcIssuer").value = s.oidcIssuer || "";
+    $("#oidcClientID").value = s.oidcClientID || "";
+    $("#oidcClientSecret").value = s.oidcClientSecret || "";
+    $("#oidcRedirectURL").value = s.oidcRedirectURL || "";
+    $("#oidcScopes").value = s.oidcScopes || "openid profile email";
+    $("#oidcUsernameClaim").value = s.oidcUsernameClaim || "preferred_username";
+    $("#oidcDisplayNameClaim").value = s.oidcDisplayNameClaim || "name";
+    $("#oidcGroupsClaim").value = s.oidcGroupsClaim || "groups";
+    $("#oidcAdminGroup").value = s.oidcAdminGroup || "";
+    $("#oidcDefaultRole").value = s.oidcDefaultRole === "admin" ? "admin" : "member";
+    $("#oidcAutoCreate").checked = s.oidcAutoCreate !== "0";
+  }
+
+  async function saveAuthSettings(payload, message) {
+    try {
+      var data = await api("/api/admin/settings", { method: "PUT", body: JSON.stringify(payload) });
+      state.settings = data.settings;
+      fillAuthForm();
+      toast(t(message), "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  function submitLDAP(event) {
+    event.preventDefault();
+    saveAuthSettings({
+      ldapEnabled: $("#ldapEnabled").checked ? "1" : "0",
+      ldapAddr: $("#ldapAddr").value.trim(),
+      ldapStartTLS: $("#ldapStartTLS").checked ? "1" : "0",
+      ldapSkipVerify: $("#ldapSkipVerify").checked ? "1" : "0",
+      ldapBindDN: $("#ldapBindDN").value.trim(),
+      ldapBindPassword: $("#ldapBindPassword").value,
+      ldapBaseDN: $("#ldapBaseDN").value.trim(),
+      ldapUserDN: $("#ldapUserDN").value.trim(),
+      ldapUserFilter: $("#ldapUserFilter").value.trim(),
+      ldapUsernameAttr: $("#ldapUsernameAttr").value.trim(),
+      ldapDisplayNameAttr: $("#ldapDisplayNameAttr").value.trim(),
+      ldapAdminGroup: $("#ldapAdminGroup").value.trim(),
+      ldapDefaultRole: $("#ldapDefaultRole").value,
+      ldapAutoCreate: $("#ldapAutoCreate").checked ? "1" : "0"
+    }, "LDAP 设置已保存");
+  }
+
+  function submitOIDC(event) {
+    event.preventDefault();
+    saveAuthSettings({
+      oidcEnabled: $("#oidcEnabled").checked ? "1" : "0",
+      oidcName: $("#oidcName").value.trim(),
+      oidcIssuer: $("#oidcIssuer").value.trim(),
+      oidcClientID: $("#oidcClientID").value.trim(),
+      oidcClientSecret: $("#oidcClientSecret").value,
+      oidcRedirectURL: $("#oidcRedirectURL").value.trim(),
+      oidcScopes: $("#oidcScopes").value.trim(),
+      oidcUsernameClaim: $("#oidcUsernameClaim").value.trim(),
+      oidcDisplayNameClaim: $("#oidcDisplayNameClaim").value.trim(),
+      oidcGroupsClaim: $("#oidcGroupsClaim").value.trim(),
+      oidcAdminGroup: $("#oidcAdminGroup").value.trim(),
+      oidcDefaultRole: $("#oidcDefaultRole").value,
+      oidcAutoCreate: $("#oidcAutoCreate").checked ? "1" : "0"
+    }, "SSO 设置已保存");
+  }
+
   async function submitPassword(event) {
     event.preventDefault();
     var current = $("#pwdCurrent").value;
@@ -1139,6 +1233,8 @@
     $("#resetForm").addEventListener("submit", submitReset);
     $("#settingsForm").addEventListener("submit", submitSettings);
     $("#passwordForm").addEventListener("submit", submitPassword);
+    $("#ldapForm").addEventListener("submit", submitLDAP);
+    $("#oidcForm").addEventListener("submit", submitOIDC);
 
     $("#addCardButton").addEventListener("click", function () { openCardDialog(null); });
     $("#addCategoryButton").addEventListener("click", function () { openCategoryDialog(null); });

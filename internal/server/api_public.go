@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Songxwn/team-nav-go/internal/auth"
 	"github.com/Songxwn/team-nav-go/internal/model"
 	"github.com/Songxwn/team-nav-go/internal/store"
 )
@@ -19,7 +20,17 @@ type bootstrapResponse struct {
 	Notices    []model.Notice    `json:"notices"`
 	User       *model.User       `json:"user,omitempty"`
 	Stats      publicStats       `json:"stats"`
+	Auth       authProviders     `json:"auth"`
 	Version    string            `json:"version"`
+}
+
+// authProviders is the public description of enabled sign-in methods. Secrets
+// and directory details never leave the server.
+type authProviders struct {
+	Password bool   `json:"password"`
+	LDAP     bool   `json:"ldap"`
+	OIDC     bool   `json:"oidc"`
+	OIDCName string `json:"oidcName,omitempty"`
 }
 
 type publicStats struct {
@@ -28,13 +39,51 @@ type publicStats struct {
 	Clicks     int64 `json:"clicks"`
 }
 
+// publicSiteSettings filters the settings map down to values the frontend
+// needs. Directory and SSO secrets are admin-only.
+func publicSiteSettings(all map[string]string) map[string]string {
+	keys := []string{
+		"siteName", "siteSubtitle", "siteLogo", "footerText", "welcomeText",
+		"allowApply", "showClicks", "noticeInterval", "accent", "language",
+	}
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := all[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func (s *Server) authProviders(ctx context.Context) authProviders {
+	settings, err := s.store.Settings(ctx)
+	if err != nil {
+		return authProviders{Password: true}
+	}
+	providers := authProviders{
+		Password: true,
+		LDAP:     auth.LDAPConfigFromSettings(settings).Enabled,
+	}
+	oidcCfg := auth.OIDCConfigFromSettings(settings)
+	if oidcCfg.Enabled {
+		providers.OIDC = true
+		providers.OIDCName = oidcCfg.Name
+	}
+	return providers
+}
+
+func (s *Server) handleAuthProviders(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.authProviders(r.Context()))
+}
+
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	site, err := s.store.Settings(ctx)
+	allSettings, err := s.store.Settings(ctx)
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
+	site := publicSiteSettings(allSettings)
 	cats, err := s.store.Categories(ctx, false)
 	if err != nil {
 		s.internalError(w, err)
@@ -72,6 +121,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		Notices:    notices,
 		User:       s.currentUser(r),
 		Stats:      stats,
+		Auth:       s.authProviders(ctx),
 		Version:    s.version,
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -236,13 +286,54 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	user, token, ttl, err := s.auth.Login(r.Context(), strings.TrimSpace(req.Username), req.Password)
+	username := strings.TrimSpace(req.Username)
+	ctx := r.Context()
+	settings, err := s.store.Settings(ctx)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "用户名或密码不正确")
+		s.internalError(w, err)
 		return
 	}
-	s.auth.SetCookie(w, token, ttl)
-	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+
+	user, token, ttl, err := s.auth.Login(ctx, username, req.Password)
+	if err == nil {
+		s.auth.SetCookie(w, token, ttl)
+		writeJSON(w, http.StatusOK, map[string]any{"user": user})
+		return
+	}
+
+	// Unknown users and accounts provisioned by an external provider fall back
+	// to LDAP. A wrong password for a local account does not, so a directory
+	// account can never shadow a local administrator.
+	ldapCfg := auth.LDAPConfigFromSettings(settings)
+	canFallback := errors.Is(err, store.ErrNotFound) || errors.Is(err, auth.ErrExternalAccount)
+	if canFallback && ldapCfg.Enabled {
+		user, ldapErr := s.ldap.Authenticate(ctx, ldapCfg, username, req.Password)
+		if ldapErr == nil {
+			token, ttl, err := s.auth.SignIn(ctx, user)
+			if err != nil {
+				s.internalError(w, err)
+				return
+			}
+			s.auth.SetCookie(w, token, ttl)
+			writeJSON(w, http.StatusOK, map[string]any{"user": user})
+			return
+		}
+		switch {
+		case errors.Is(ldapErr, auth.ErrLDAPInvalidCredentials):
+			// fall through to the generic message
+		case errors.Is(ldapErr, auth.ErrLDAPNotProvisioned):
+			writeError(w, http.StatusForbidden, "账号尚未开通，请联系管理员")
+			return
+		case errors.Is(ldapErr, auth.ErrLDAPConflict):
+			writeError(w, http.StatusConflict, "账号名称已被占用，请联系管理员")
+			return
+		default:
+			s.log.Error("ldap login failed", "err", ldapErr)
+			writeError(w, http.StatusServiceUnavailable, "目录认证服务暂不可用，请稍后再试")
+			return
+		}
+	}
+	writeError(w, http.StatusUnauthorized, "用户名或密码不正确")
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

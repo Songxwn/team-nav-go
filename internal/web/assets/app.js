@@ -16,6 +16,7 @@
     notices: [],
     user: null,
     stats: {},
+    auth: {},
     categoryMap: new Map(),
     favorites: loadFavorites(),
     favOnly: false,
@@ -162,6 +163,7 @@
     bindGlobalEvents();
     I18N.onChange(function () {
       updateLangButton();
+      applyAuthProviders(state.auth);
       applySite();
       renderAll();
       I18N.localize(document.body);
@@ -177,16 +179,22 @@
       state.notices = data.notices || [];
       state.user = data.user || null;
       state.stats = data.stats || {};
+      state.auth = data.auth || {};
       if (data.version) $("#footerVersion").textContent = "TeamNav v" + data.version;
       if (!I18N.hasExplicitChoice() && (state.site.language === "zh" || state.site.language === "en")) {
         I18N.setLang(state.site.language, { persist: false, silent: true });
         updateLangButton();
       }
       indexCategories(state.categories, 0);
+      applyAuthProviders(state.auth);
       applySite();
       renderAll();
       I18N.localize(document.body);
-      if (new URLSearchParams(location.search).get("login") === "1" && !state.user) {
+      var params = new URLSearchParams(location.search);
+      var authError = params.get("auth");
+      if (authError && !state.user) {
+        openLogin(authErrorMessage(authError));
+      } else if (params.get("login") === "1" && !state.user) {
         openLogin();
       }
     } catch (err) {
@@ -295,7 +303,7 @@
         '<div class="avatar" style="background:linear-gradient(140deg,#94a3b8,#475569)">?</div>' +
         '<div class="meta"><strong>访客模式</strong><span>登录后可提交卡片</span></div>' +
         '<button class="btn btn-soft btn-sm" type="button" id="chipLogin" style="height:30px;padding:0 10px">登录</button>';
-      $("#chipLogin").addEventListener("click", openLogin);
+      $("#chipLogin").addEventListener("click", function () { openLogin(); });
       el.adminEntry.hidden = true;
       el.loginButton.hidden = false;
     }
@@ -673,11 +681,66 @@
   // -------------------------------------------------------------------------
   // Auth
 
-  function openLogin() {
-    $("#loginError").classList.remove("show");
+  var AUTH_ERRORS = {
+    denied: "已取消 SSO 登录",
+    state: "登录状态已过期，请重新登录",
+    conflict: "账号名称已被占用，请联系管理员",
+    notprovisioned: "账号尚未开通，请联系管理员",
+    unavailable: "认证服务暂不可用，请稍后再试",
+    disabled: "SSO 登录未启用",
+    failed: "SSO 登录失败，请联系管理员"
+  };
+
+  function authErrorMessage(code) {
+    return t(AUTH_ERRORS[code] || AUTH_ERRORS.failed);
+  }
+
+  function safeLocalPath(raw) {
+    raw = String(raw || "").trim();
+    if (!raw || raw.charAt(0) !== "/" || raw.charAt(1) === "/" || raw.indexOf("\\") !== -1) return "/";
+    try {
+      var url = new URL(raw, location.origin);
+      if (url.origin !== location.origin) return "/";
+      return url.pathname + url.search + url.hash;
+    } catch (e) {
+      return "/";
+    }
+  }
+
+  function authRedirectTarget() {
+    var params = new URLSearchParams(location.search);
+    return safeLocalPath(params.get("redirect") || location.pathname);
+  }
+
+  function applyAuthProviders(auth) {
+    var button = $("#ssoButton");
+    var hint = $("#ldapHint");
+    var alt = $("#authAlt");
+    if (!button || !hint || !alt) return;
+    auth = auth || {};
+    button.hidden = !auth.oidc;
+    hint.hidden = !auth.ldap;
+    alt.hidden = !auth.oidc && !auth.ldap;
+    if (auth.oidc) {
+      button.textContent = t("使用 {name} 登录", { name: auth.oidcName || "SSO" });
+      button.href = "/api/auth/oidc/start?redirect=" + encodeURIComponent(authRedirectTarget());
+    }
+  }
+
+  function openLogin(message) {
+    var error = $("#loginError");
+    error.textContent = message || "";
+    error.classList.toggle("show", Boolean(message));
     el.loginForm.reset();
     el.loginDialog.showModal();
     window.setTimeout(function () { $("#loginUsername").focus(); }, 60);
+    var params = new URLSearchParams(location.search);
+    if (params.has("auth") || params.has("login")) {
+      params.delete("auth");
+      params.delete("login");
+      var query = params.toString();
+      history.replaceState(null, "", location.pathname + (query ? "?" + query : "") + location.hash);
+    }
   }
 
   async function logout() {
@@ -713,6 +776,11 @@
       if (!res.ok) throw new Error(data.error || t("登录失败"));
       state.user = data.user;
       el.loginDialog.close();
+      var target = authRedirectTarget();
+      if (target !== "/" && target !== location.pathname + location.search) {
+        window.location.href = target;
+        return;
+      }
       toast(t("欢迎回来，{name}", { name: state.user.displayName || state.user.username }), "success");
       var boot = await fetch("/api/bootstrap").then(function (r) { return r.json(); });
       state.user = boot.user;
@@ -847,7 +915,7 @@
       if (document.body.classList.contains("nav-open")) closeNav();
       else openNav();
     });
-    el.loginButton.addEventListener("click", openLogin);
+    el.loginButton.addEventListener("click", function () { openLogin(); });
     el.applyButton.addEventListener("click", openApply);
     el.favButton.addEventListener("click", function () {
       state.favOnly = !state.favOnly;

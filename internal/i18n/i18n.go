@@ -89,6 +89,19 @@ var englishMessages = map[string]string{
 	"公告内容不能超过 2000 个字符":                 "Notice content cannot exceed 2000 characters.",
 	"公告级别不正确":                           "Invalid notice level.",
 	"公告链接必须是 http/https 地址":             "The notice link must be an http/https address.",
+	"账号尚未开通，请联系管理员":                     "This account has not been provisioned. Contact an administrator.",
+	"账号名称已被占用，请联系管理员":                   "That account name is already taken. Contact an administrator.",
+	"目录认证服务暂不可用，请稍后再试":                  "The directory service is unavailable. Please try again later.",
+	"外部账号请在身份提供方修改密码":                   "Change the password at your identity provider.",
+	"LDAP 地址不能为空":                       "LDAP address is required.",
+	"请填写服务账号或用户 DN 模板":                  "Provide a service account or a user DN template.",
+	"请填写服务账号密码":                         "The service account password is required.",
+	"用户 DN 模板需包含 {username}":            "The user DN template must contain {username}.",
+	"使用目录搜索时必须填写 Base DN":               "Base DN is required when searching the directory.",
+	"SSO Issuer 不能为空":                   "SSO issuer is required.",
+	"SSO Issuer 必须是 http/https 地址":      "SSO issuer must be an http/https URL.",
+	"SSO Client ID 不能为空":                "SSO client ID is required.",
+	"SSO 回调地址必须是 http/https 地址":         "SSO callback URL must be an http/https URL.",
 }
 
 // Translate renders msg in the requested language. Unsupported languages and

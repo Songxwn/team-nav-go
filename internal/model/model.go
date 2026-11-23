@@ -74,7 +74,22 @@ type User struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	Role        string `json:"role"` // admin | member
+	Source      string `json:"source"`
+	ExternalID  string `json:"-"`
 	CreatedAt   int64  `json:"createdAt"`
+}
+
+// Identity sources recorded on users.
+const (
+	SourceLocal = "local"
+	SourceLDAP  = "ldap"
+	SourceOIDC  = "oidc"
+)
+
+// IsExternal reports whether the account is managed by an identity provider
+// and therefore has no usable local password.
+func (u *User) IsExternal() bool {
+	return u != nil && u.Source != "" && u.Source != SourceLocal
 }
 
 // IsAdmin reports whether the user may manage the site.

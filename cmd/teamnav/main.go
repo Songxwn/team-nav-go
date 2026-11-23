@@ -101,6 +101,7 @@ func main() {
 		for range ticker.C {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			_ = st.PurgeSessions(ctx)
+			_ = st.PurgeAuthStates(ctx)
 			cancel()
 		}
 	}()

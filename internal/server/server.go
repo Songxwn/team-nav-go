@@ -39,6 +39,8 @@ type Options struct {
 type Server struct {
 	store      *store.Store
 	auth       *auth.Manager
+	ldap       *auth.LDAPAuthenticator
+	oidc       *auth.OIDCAuthenticator
 	cache      *imgcache.Cache
 	version    string
 	trustProxy bool
@@ -60,6 +62,8 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		store:      opts.Store,
 		auth:       opts.Auth,
+		ldap:       auth.NewLDAPAuthenticator(opts.Store),
+		oidc:       auth.NewOIDCAuthenticator(opts.Store),
 		cache:      imgcache.New(int64(opts.ImageCacheMB) << 20),
 		version:    opts.Version,
 		trustProxy: opts.TrustProxy,
@@ -100,6 +104,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/auth/me", s.handleMe)
+	mux.HandleFunc("GET /api/auth/providers", s.handleAuthProviders)
+	mux.HandleFunc("GET /api/auth/oidc/start", s.handleOIDCStart)
+	mux.HandleFunc("GET /api/auth/oidc/callback", s.handleOIDCCallback)
 
 	mux.HandleFunc("GET /api/images/{id}", s.handleImage)
 

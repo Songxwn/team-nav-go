@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -22,6 +23,10 @@ import (
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrUsernameTaken is returned when an external account maps to a username
+// that already belongs to another identity source.
+var ErrUsernameTaken = errors.New("username already taken")
+
 const schema = `
 CREATE TABLE IF NOT EXISTS users (
 	id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,6 +34,8 @@ CREATE TABLE IF NOT EXISTS users (
 	password_hash TEXT NOT NULL,
 	display_name  TEXT NOT NULL DEFAULT '',
 	role          TEXT NOT NULL DEFAULT 'member',
+	source        TEXT NOT NULL DEFAULT 'local',
+	external_id   TEXT NOT NULL DEFAULT '',
 	created_at    INTEGER NOT NULL
 );
 
@@ -104,6 +111,15 @@ CREATE TABLE IF NOT EXISTS daily_stats (
 	day   TEXT PRIMARY KEY,
 	views INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS auth_states (
+	state      TEXT PRIMARY KEY,
+	nonce      TEXT NOT NULL,
+	verifier   TEXT NOT NULL,
+	redirect   TEXT NOT NULL DEFAULT '/',
+	expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_states_expiry ON auth_states(expires_at);
 `
 
 // Store wraps the SQLite database.
@@ -135,6 +151,10 @@ func Open(path, adminUser, adminPass string) (*Store, error) {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 	s := &Store{db: db, path: path}
+	if err := s.migrate(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := s.seed(adminUser, adminPass); err != nil {
 		db.Close()
 		return nil, err
@@ -147,6 +167,51 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // Path returns the database file location.
 func (s *Store) Path() string { return s.path }
+
+// migrate upgrades databases created by older releases. Columns added after
+// the initial schema are appended when missing; SQLite has no IF NOT EXISTS
+// for columns, so the current shape is inspected first.
+func (s *Store) migrate(ctx context.Context) error {
+	cols := map[string]bool{}
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(users)`)
+	if err != nil {
+		return fmt.Errorf("inspect users table: %w", err)
+	}
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			ctype   string
+			notnull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		cols[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !cols["source"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'`); err != nil {
+			return fmt.Errorf("add users.source: %w", err)
+		}
+	}
+	if !cols["external_id"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN external_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add users.external_id: %w", err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external ON users(source, external_id) WHERE external_id <> ''`); err != nil {
+		return fmt.Errorf("index users external id: %w", err)
+	}
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM auth_states WHERE expires_at < ?`, time.Now().Unix())
+	return nil
+}
 
 func (s *Store) seed(adminUser, adminPass string) error {
 	ctx := context.Background()
@@ -187,6 +252,35 @@ func (s *Store) seed(adminUser, adminPass string) error {
 		"sessionTTL":     "66",
 		"accent":         "indigo",
 		"language":       "zh",
+
+		"ldapEnabled":         "0",
+		"ldapAddr":            "",
+		"ldapStartTLS":        "0",
+		"ldapSkipVerify":      "0",
+		"ldapBindDN":          "",
+		"ldapBindPassword":    "",
+		"ldapBaseDN":          "",
+		"ldapUserFilter":      "(uid={username})",
+		"ldapUserDN":          "",
+		"ldapUsernameAttr":    "uid",
+		"ldapDisplayNameAttr": "displayName",
+		"ldapAdminGroup":      "",
+		"ldapDefaultRole":     "member",
+		"ldapAutoCreate":      "1",
+
+		"oidcEnabled":          "0",
+		"oidcName":             "SSO",
+		"oidcIssuer":           "",
+		"oidcClientID":         "",
+		"oidcClientSecret":     "",
+		"oidcRedirectURL":      "",
+		"oidcScopes":           "openid profile email",
+		"oidcUsernameClaim":    "preferred_username",
+		"oidcDisplayNameClaim": "name",
+		"oidcGroupsClaim":      "groups",
+		"oidcAdminGroup":       "",
+		"oidcDefaultRole":      "member",
+		"oidcAutoCreate":       "1",
 	}
 	for k, v := range defaults {
 		if _, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v); err != nil {
@@ -729,20 +823,33 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (*model.Use
 		hash string
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, display_name, role, created_at FROM users WHERE username = ?`, username).
-		Scan(&u.ID, &u.Username, &hash, &u.DisplayName, &u.Role, &u.CreatedAt)
+		`SELECT id, username, password_hash, display_name, role, source, external_id, created_at FROM users WHERE username = ?`, username).
+		Scan(&u.ID, &u.Username, &hash, &u.DisplayName, &u.Role, &u.Source, &u.ExternalID, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", ErrNotFound
 	}
 	return &u, hash, err
 }
 
+// UserByExternal loads a user previously provisioned by an external provider.
+func (s *Store) UserByExternal(ctx context.Context, source, externalID string) (*model.User, error) {
+	var u model.User
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, username, display_name, role, source, external_id, created_at FROM users
+		 WHERE source = ? AND external_id = ?`, source, externalID).
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.Source, &u.ExternalID, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &u, err
+}
+
 // UserByID loads a user.
 func (s *Store) UserByID(ctx context.Context, id int64) (*model.User, error) {
 	var u model.User
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, display_name, role, created_at FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.CreatedAt)
+		`SELECT id, username, display_name, role, source, external_id, created_at FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.Source, &u.ExternalID, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -751,7 +858,8 @@ func (s *Store) UserByID(ctx context.Context, id int64) (*model.User, error) {
 
 // Users lists all accounts.
 func (s *Store) Users(ctx context.Context) ([]model.User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, username, display_name, role, created_at FROM users ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, username, display_name, role, source, external_id, created_at FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -759,7 +867,7 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	out := []model.User{}
 	for rows.Next() {
 		var u model.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.Source, &u.ExternalID, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -767,7 +875,14 @@ func (s *Store) Users(ctx context.Context) ([]model.User, error) {
 	return out, rows.Err()
 }
 
-// CreateUser inserts an account with a bcrypt password hash.
+// AdminCount returns how many administrator accounts exist.
+func (s *Store) AdminCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&count)
+	return count, err
+}
+
+// CreateUser inserts a local account with a bcrypt password hash.
 func (s *Store) CreateUser(ctx context.Context, username, password, displayName, role string) (*model.User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -775,13 +890,41 @@ func (s *Store) CreateUser(ctx context.Context, username, password, displayName,
 	}
 	now := time.Now().Unix()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO users (username, password_hash, display_name, role, source, external_id, created_at)
+		 VALUES (?, ?, ?, ?, 'local', '', ?)`,
 		username, string(hash), displayName, role, now)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &model.User{ID: id, Username: username, DisplayName: displayName, Role: role, CreatedAt: now}, nil
+	return &model.User{ID: id, Username: username, DisplayName: displayName, Role: role, Source: model.SourceLocal, CreatedAt: now}, nil
+}
+
+// CreateExternalUser provisions an account for an LDAP or OIDC identity. The
+// password hash is random and unusable: these accounts always authenticate
+// through their provider.
+func (s *Store) CreateExternalUser(ctx context.Context, username, displayName, role, source, externalID string) (*model.User, error) {
+	secret, err := randomSecret()
+	if err != nil {
+		return nil, err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(secret), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().Unix()
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO users (username, password_hash, display_name, role, source, external_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		username, string(hash), displayName, role, source, externalID, now)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrUsernameTaken
+		}
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &model.User{ID: id, Username: username, DisplayName: displayName, Role: role, Source: source, ExternalID: externalID, CreatedAt: now}, nil
 }
 
 // UpdateUser saves role and display name.
@@ -791,6 +934,31 @@ func (s *Store) UpdateUser(ctx context.Context, u *model.User) error {
 		return err
 	}
 	return expectOne(res)
+}
+
+// UpdateExternalUser refreshes the profile and role of a provider managed
+// account. The username is intentionally left alone so links and references
+// stay stable.
+func (s *Store) UpdateExternalUser(ctx context.Context, id int64, displayName, role, source, externalID string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET display_name = ?, role = ?, source = ?, external_id = ? WHERE id = ?`,
+		displayName, role, source, externalID, id)
+	if err != nil {
+		return err
+	}
+	return expectOne(res)
+}
+
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique constraint")
+}
+
+func randomSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // SetPassword replaces the bcrypt hash for a user.
@@ -827,10 +995,10 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID, exp
 func (s *Store) SessionUser(ctx context.Context, tokenHash string) (*model.User, error) {
 	var u model.User
 	err := s.db.QueryRowContext(ctx,
-		`SELECT u.id, u.username, u.display_name, u.role, u.created_at
+		`SELECT u.id, u.username, u.display_name, u.role, u.source, u.external_id, u.created_at
 		 FROM sessions s JOIN users u ON u.id = s.user_id
 		 WHERE s.token = ? AND s.expires_at > ?`, tokenHash, time.Now().Unix()).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.Source, &u.ExternalID, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -846,6 +1014,55 @@ func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 // PurgeSessions removes expired sessions.
 func (s *Store) PurgeSessions(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ?`, time.Now().Unix())
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// OIDC authorization state
+
+// AuthState is the short lived state kept between the OIDC redirect and the
+// callback. It is deliberately stored server side: the browser only sees the
+// opaque state value.
+type AuthState struct {
+	State     string
+	Nonce     string
+	Verifier  string
+	Redirect  string
+	ExpiresAt int64
+}
+
+// SaveAuthState stores a pending OIDC authorization.
+func (s *Store) SaveAuthState(ctx context.Context, st *AuthState) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO auth_states (state, nonce, verifier, redirect, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		st.State, st.Nonce, st.Verifier, st.Redirect, st.ExpiresAt)
+	return err
+}
+
+// TakeAuthState consumes an authorization state exactly once.
+func (s *Store) TakeAuthState(ctx context.Context, state string) (*AuthState, error) {
+	st := &AuthState{State: state}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT nonce, verifier, redirect, expires_at FROM auth_states WHERE state = ?`, state).
+		Scan(&st.Nonce, &st.Verifier, &st.Redirect, &st.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM auth_states WHERE state = ?`, state); err != nil {
+		return nil, err
+	}
+	if st.ExpiresAt < time.Now().Unix() {
+		return nil, ErrNotFound
+	}
+	return st, nil
+}
+
+// PurgeAuthStates removes abandoned OIDC authorizations.
+func (s *Store) PurgeAuthStates(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_states WHERE expires_at < ?`, time.Now().Unix())
 	return err
 }
 

@@ -1686,6 +1686,42 @@ dialog.modal[open] {
   color: var(--accent);
 }
 
+/* Sign-in providers ------------------------------------------------------- */
+
+.auth-alt {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-sso {
+  width: 100%;
+  justify-content: center;
+}
+
+.login-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* Toasts ----------------------------------------------------------------- */
 
 .toasts {

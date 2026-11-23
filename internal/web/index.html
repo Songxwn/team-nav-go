@@ -189,6 +189,11 @@
           <button class="btn btn-ghost" type="button" data-close-dialog>取消</button>
           <button class="btn btn-primary" type="submit" id="loginSubmit">登录</button>
         </div>
+        <div class="auth-alt" id="authAlt" hidden>
+          <div class="auth-divider"><span>或</span></div>
+          <a class="btn btn-ghost auth-sso" id="ssoButton" href="/api/auth/oidc/start" hidden></a>
+          <p class="login-hint" id="ldapHint" hidden>支持 LDAP / AD 目录账号，直接输入账号密码登录</p>
+        </div>
         <p class="login-switch">还没有账号？请联系管理员分配权限</p>
       </div>
     </form>
