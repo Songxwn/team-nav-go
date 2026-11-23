@@ -200,7 +200,7 @@ func (a *LDAPAuthenticator) Authenticate(ctx context.Context, cfg LDAPConfig, us
 		return nil, lookupErr
 	}
 	if existing == nil {
-		byName, nameErr := a.store.UserByUsername(ctx, handle)
+		byName, _, nameErr := a.store.UserByUsername(ctx, handle)
 		switch {
 		case nameErr == nil:
 			if byName.Source != model.SourceLDAP {

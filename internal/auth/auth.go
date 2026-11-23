@@ -104,6 +104,10 @@ func CheckPassword(hash, password string) bool {
 	return bcryptCompare(hash, password)
 }
 
+// CookieSecure reports whether cookies are marked Secure. The OIDC state
+// cookie follows the same policy as the session cookie.
+func (m *Manager) CookieSecure() bool { return m.secure }
+
 // SetCookie writes the session cookie with the matching lifetime.
 func (m *Manager) SetCookie(w http.ResponseWriter, token string, ttl time.Duration) {
 	http.SetCookie(w, &http.Cookie{

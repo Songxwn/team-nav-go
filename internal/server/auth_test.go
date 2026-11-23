@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestSafeLocalPath(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -17,6 +21,23 @@ func TestSafeLocalPath(t *testing.T) {
 		if got := safeLocalPath(tc.in); got != tc.want {
 			t.Errorf("safeLocalPath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestOIDCStateCookieMatches(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/oidc/callback?state=abc", nil)
+	if oidcStateCookieMatches(req, "abc") {
+		t.Fatal("missing state cookie must not match")
+	}
+	req.AddCookie(&http.Cookie{Name: oidcStateCookie, Value: "abc"})
+	if !oidcStateCookieMatches(req, "abc") {
+		t.Fatal("matching state cookie was rejected")
+	}
+	if oidcStateCookieMatches(req, "other") {
+		t.Fatal("mismatched state must not match")
+	}
+	if oidcStateCookieMatches(req, "") {
+		t.Fatal("empty state must not match")
 	}
 }
 

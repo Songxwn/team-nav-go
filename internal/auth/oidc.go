@@ -261,7 +261,7 @@ func (a *OIDCAuthenticator) Provision(ctx context.Context, cfg OIDCConfig, ident
 		return existing, nil
 	}
 
-	byName, nameErr := a.store.UserByUsername(ctx, handle)
+	byName, _, nameErr := a.store.UserByUsername(ctx, handle)
 	switch {
 	case nameErr == nil:
 		if byName.Source != model.SourceOIDC {

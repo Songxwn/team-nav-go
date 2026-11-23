@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"net/url"
@@ -13,6 +14,11 @@ import (
 )
 
 const oidcStateTTL = 10 * time.Minute
+
+// oidcStateCookie binds the authorization state to the browser that started
+// the flow. Without it an attacker could complete a login with their own
+// state and code (login CSRF).
+const oidcStateCookie = "tn_oidc"
 
 // handleOIDCStart begins the authorization code flow. It creates a one-time
 // state, stores the nonce and PKCE verifier server side, then redirects to the
@@ -49,6 +55,16 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectTo := safeLocalPath(r.URL.Query().Get("redirect"))
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookie,
+		Value:    state,
+		Path:     "/api/auth/oidc",
+		HttpOnly: true,
+		Secure:   s.auth.CookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(oidcStateTTL),
+		MaxAge:   int(oidcStateTTL / time.Second),
+	})
 	if err := s.store.SaveAuthState(ctx, &store.AuthState{
 		State:     state,
 		Nonce:     nonce,
@@ -84,7 +100,13 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		s.redirectAuthError(w, r, "disabled")
 		return
 	}
-	pending, err := s.store.TakeAuthState(ctx, r.URL.Query().Get("state"))
+	state := r.URL.Query().Get("state")
+	if !oidcStateCookieMatches(r, state) {
+		s.redirectAuthError(w, r, "state")
+		return
+	}
+	s.clearOIDCStateCookie(w)
+	pending, err := s.store.TakeAuthState(ctx, state)
 	if err != nil {
 		s.redirectAuthError(w, r, "state")
 		return
@@ -155,6 +177,26 @@ func (s *Server) oidcRedirectURL(r *http.Request, cfg auth.OIDCConfig) string {
 func (s *Server) redirectAuthError(w http.ResponseWriter, r *http.Request, code string) {
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, "/?auth="+url.QueryEscape(code), http.StatusFound)
+}
+
+func oidcStateCookieMatches(r *http.Request, state string) bool {
+	c, err := r.Cookie(oidcStateCookie)
+	if err != nil || c.Value == "" || state == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(state)) == 1
+}
+
+func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookie,
+		Value:    "",
+		Path:     "/api/auth/oidc",
+		HttpOnly: true,
+		Secure:   s.auth.CookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 }
 
 // safeLocalPath only allows same-site paths, preventing an open redirect via
