@@ -18,6 +18,8 @@ services:
       TEAMNAV_COOKIE_SECURE: "0"
       # 位于 Nginx / Caddy 之后时打开，用于获取真实客户端 IP
       TEAMNAV_TRUST_PROXY: "1"
+      # 使用 PostgreSQL：叠加 docker-compose.postgres.yml
+      # docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/healthz"]
       interval: 30s

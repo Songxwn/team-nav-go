@@ -1,13 +1,14 @@
 # TeamNav Go · 星云导航
 
-> 参考 [tuituidan/team-nav](https://github.com/tuituidan/team-nav) 的功能设计，使用 **Go + SQLite + 原生前端** 完整重写。
-> 单个二进制、零外部依赖，自带精致的管理后台与图片缓存。
+> 参考 [tuituidan/team-nav](https://github.com/tuituidan/team-nav) 的功能设计，使用 **Go + SQLite / PostgreSQL + 原生前端** 完整重写。
+> 单个二进制、默认零外部依赖，自带精致的管理后台与图片缓存。
 
 [![CI](https://github.com/Songxwn/team-nav-go/actions/workflows/ci.yml/badge.svg)](https://github.com/Songxwn/team-nav-go/actions/workflows/ci.yml)
 [![Container](https://github.com/Songxwn/team-nav-go/actions/workflows/docker.yml/badge.svg)](https://github.com/Songxwn/team-nav-go/actions/workflows/docker.yml)
 [![Release](https://github.com/Songxwn/team-nav-go/actions/workflows/release.yml/badge.svg)](https://github.com/Songxwn/team-nav-go/actions/workflows/release.yml)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go)](https://go.dev)
 [![SQLite](https://img.shields.io/badge/SQLite-embedded-003B57?logo=sqlite)](https://sqlite.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-optional-4169E1?logo=postgresql)](https://www.postgresql.org)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 
 ---
@@ -19,9 +20,9 @@
 | | team-nav (Java) | TeamNav Go |
 |---|---|---|
 | 运行时 | JDK + Spring Boot | **单个静态二进制**（约 15MB） |
-| 数据库 | H2 / MySQL / PostgreSQL | **SQLite（WAL 模式，无需额外服务）** |
+| 数据库 | H2 / MySQL / PostgreSQL | **SQLite（默认，WAL 模式）或 PostgreSQL（可选）** |
 | 前端 | Vue 2 + Element UI | **原生 ES2020 + 手写 Cocoon UI 设计系统** |
-| 图片 | 文件系统挂载 | **SQLite BLOB + 内存 LRU + ETag/immutable 缓存** |
+| 图片 | 文件系统挂载 | **数据库 BLOB / BYTEA + 内存 LRU + ETag/immutable 缓存** |
 | 部署 | jar + 挂载目录 | **Docker 镜像自动发布到 GHCR** |
 | 构建 | Maven + Node | **GitHub Actions，仅 Go 工具链** |
 
@@ -48,7 +49,7 @@
 - 认证接入：**LDAP / AD** 目录登录与 **OIDC 单点登录（SSO）**，支持组映射管理员、自动开通账号
 - 图片库：上传、拖拽、复制地址、删除、内容去重
 - 系统设置：站点名称、副标题、欢迎语、界面语言、LOGO、主题色、公告间隔、页脚、登录会话有效期
-- 数据备份：一键下载 SQLite 快照（图片也在库内）
+- 数据备份：SQLite 后端可一键下载快照（图片也在库内）；PostgreSQL 后端请使用 `pg_dump`
 - 关于卡片内含 GitHub 仓库入口（首页不再展示 GitHub 链接）
 
 ## 快速开始
@@ -72,6 +73,17 @@ docker run -d \
 # 修改 docker-compose.yml 中的 TEAMNAV_ADMIN_PASSWORD
 docker compose up -d
 ```
+
+### Docker Compose + PostgreSQL
+
+仓库自带一个覆盖文件，会额外启动 PostgreSQL 并把应用指向它：
+
+```bash
+# 首次使用请修改 docker-compose.postgres.yml 中的数据库密码
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+```
+
+数据库为空时会自动建表并写入默认设置与示例内容，无需手动执行 SQL。
 
 ### 本地运行
 
@@ -100,7 +112,8 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 |---|---|---|---|
 | `TEAMNAV_ADDR` | `-addr` | `:8080` | 监听地址 |
 | `TEAMNAV_DATA_DIR` | `-data` | `./data` | 数据目录（存放 SQLite） |
-| `TEAMNAV_DB` | — | `$DATA/team-nav.db` | 直接指定数据库文件 |
+| `TEAMNAV_DB` | — | `$DATA/team-nav.db` | 直接指定 SQLite 文件，也可填 `postgres://` 连接串 |
+| `TEAMNAV_DATABASE_URL` | `-database-url` | 空 | PostgreSQL 连接串；填写后优先于 `TEAMNAV_DB` |
 | `TEAMNAV_ADMIN_USER` | — | `admin` | 首次启动创建的管理员用户名 |
 | `TEAMNAV_ADMIN_PASSWORD` | — | `admin123` | 首次启动创建的管理员密码 |
 | `TEAMNAV_IMAGE_CACHE_MB` | `-image-cache-mb` | `64` | 图片内存缓存预算（MiB，`0` 关闭） |
@@ -109,6 +122,22 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 | `TEAMNAV_DEV_WEB` | `-dev-web` | 空 | 从目录加载前端，便于调试 |
 
 管理员账号只在**空数据库**首次启动时创建。如需重置密码，可删除数据卷重新初始化，或进入后台用另一名管理员重置。
+
+### 数据库后端（SQLite / PostgreSQL）
+
+默认使用 SQLite，单文件、无需额外服务。需要集中备份、多人共享或更高并发时，可以切换到 PostgreSQL：
+
+```bash
+export TEAMNAV_DATABASE_URL='postgres://teamnav:change-me@127.0.0.1:5432/teamnav?sslmode=disable'
+./teamnav -addr :8080
+```
+
+- 连接串支持 `postgres://` 与 `postgresql://`；检出该前缀即使用 PostgreSQL，否则按 SQLite 文件处理
+- 首次连接会自动创建全部表、索引、默认设置和示例数据；旧版 SQLite 库升级时也会自动补齐列和索引
+- 用户名唯一性在两种后端上都按大小写不敏感处理
+- 图片仍随业务数据一起存放：SQLite 为 `BLOB`，PostgreSQL 为 `BYTEA`，同样按 SHA-256 去重
+- 两套后端之间不会自动迁移数据。从 SQLite 切换到 PostgreSQL 属于新建空库；如需搬运请自行导出/导入
+- PostgreSQL 后端的「一键备份」按钮会提示使用 `pg_dump`，不再生成 SQLite 快照
 
 ### 站点设置（存于数据库，后台可改）
 
@@ -147,7 +176,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 
 ## 企业认证（AD / LDAP 与 SSO）
 
-后台「认证接入」页面可以启用两类企业登录方式，配置保存在 SQLite，无需改环境变量。
+后台「认证接入」页面可以启用两类企业登录方式，配置保存在数据库中，无需改环境变量。
 
 ### LDAP / Active Directory
 
@@ -178,7 +207,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 
 实现细节：
 
-- 授权码流程 + `state` + `nonce` + PKCE（S256），`state` 一次性存储于 SQLite，10 分钟过期
+- 授权码流程 + `state` + `nonce` + PKCE（S256），`state` 一次性存储于数据库，10 分钟过期
 - ID Token 通过提供方 JWKS 校验签名、issuer、audience 与 nonce
 - `oidcRedirectURL` 留空时按当前请求域名自动推导；反向代理后建议显式填写，并设置 `TEAMNAV_TRUST_PROXY=1`
 - 用户以 `(issuer, sub)` 作为稳定标识，用户名变更不会重复建号；显示名与组角色每次登录同步
@@ -193,14 +222,14 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(git describe 
 
 ## 图片存储与缓存
 
-图片不落磁盘文件，而是以 BLOB 保存在 SQLite 的 `images` 表中，并以 SHA-256 去重：
+图片不落磁盘文件，而是随业务数据保存在数据库的 `images` 表中（SQLite 用 `BLOB`，PostgreSQL 用 `BYTEA`），并以 SHA-256 去重：
 
 ```
 上传 ──► 计算 SHA-256 ──► 已存在？ ── 是 ──► 直接复用
                               │
                               否
                               ▼
-                      写入 images 表（BLOB）
+                      写入 images 表（BLOB / BYTEA）
                               │
         首次访问 ──► 读库 ──► 写入内存 LRU ──► 返回 ETag
         再次访问 ──► 命中 LRU ──► 304 / immutable 响应
@@ -299,13 +328,14 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 │   ├── imgcache/                # 字节上限 LRU
 │   ├── model/                   # 实体定义
 │   ├── server/                  # 路由、API、中间件、OIDC 回调、静态资源
-│   ├── store/                   # SQLite schema、查询、种子数据
+│   ├── store/                   # SQLite / PostgreSQL schema、查询、种子数据
 │   └── web/                     # go:embed 的前端（Cocoon UI）
 │       ├── index.html           # 导航首页
 │       ├── admin.html           # 管理后台
 │       └── assets/{app,admin}.css|js, i18n.js
 ├── Dockerfile                   # 多阶段构建，非 root 运行
 ├── docker-compose.yml
+├── docker-compose.postgres.yml  # 可选：叠加启用 PostgreSQL
 └── .github/workflows/           # CI + GHCR 镜像 + 全平台二进制发布
 ```
 
@@ -337,6 +367,7 @@ curl -s "localhost:8080/api/search?q=监控" | jq '.cards[].name'
 
 - 功能与交互灵感来自 [tuituidan/team-nav](https://github.com/tuituidan/team-nav)（MIT）
 - SQLite 驱动：[modernc.org/sqlite](https://gitlab.com/cznic/sqlite)（纯 Go，无 CGO）
+- PostgreSQL 驱动：[jackc/pgx](https://github.com/jackc/pgx)（纯 Go，无 CGO）
 - 图标：手写 SVG
 
 ## License

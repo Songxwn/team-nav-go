@@ -102,6 +102,7 @@ var englishMessages = map[string]string{
 	"SSO Issuer 必须是 http/https 地址":      "SSO issuer must be an http/https URL.",
 	"SSO Client ID 不能为空":                "SSO client ID is required.",
 	"SSO 回调地址必须是 http/https 地址":         "SSO callback URL must be an http/https URL.",
+	"当前数据库后端不支持一键备份，请使用 pg_dump":        "This database backend does not support one-click backups. Use pg_dump instead.",
 }
 
 // Translate renders msg in the requested language. Unsupported languages and

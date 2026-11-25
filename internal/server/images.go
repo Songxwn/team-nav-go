@@ -138,6 +138,10 @@ func (s *Server) handleAdminDeleteImage(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleAdminBackup(w http.ResponseWriter, r *http.Request) {
 	file, err := s.store.Backup(r.Context())
 	if err != nil {
+		if errors.Is(err, store.ErrBackupUnsupported) {
+			writeError(w, http.StatusBadRequest, "当前数据库后端不支持一键备份，请使用 pg_dump")
+			return
+		}
 		s.internalError(w, err)
 		return
 	}

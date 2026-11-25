@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -40,11 +41,12 @@ func envInt(key string, fallback int) int {
 
 func main() {
 	var (
-		addr       = flag.String("addr", envOr("TEAMNAV_ADDR", ":8080"), "listen address")
-		dataDir    = flag.String("data", envOr("TEAMNAV_DATA_DIR", "./data"), "directory for the SQLite database")
-		cacheMB    = flag.Int("image-cache-mb", envInt("TEAMNAV_IMAGE_CACHE_MB", 64), "in-memory image cache budget in MiB (0 disables)")
-		devWeb     = flag.String("dev-web", envOr("TEAMNAV_DEV_WEB", ""), "serve web assets from this directory instead of the embedded copy")
-		trustProxy = flag.Bool("trust-proxy", envOr("TEAMNAV_TRUST_PROXY", "0") == "1", "trust X-Forwarded-For from a reverse proxy")
+		addr        = flag.String("addr", envOr("TEAMNAV_ADDR", ":8080"), "listen address")
+		dataDir     = flag.String("data", envOr("TEAMNAV_DATA_DIR", "./data"), "directory for the SQLite database")
+		databaseURL = flag.String("database-url", envOr("TEAMNAV_DATABASE_URL", ""), "PostgreSQL DSN; when empty SQLite is used")
+		cacheMB     = flag.Int("image-cache-mb", envInt("TEAMNAV_IMAGE_CACHE_MB", 64), "in-memory image cache budget in MiB (0 disables)")
+		devWeb      = flag.String("dev-web", envOr("TEAMNAV_DEV_WEB", ""), "serve web assets from this directory instead of the embedded copy")
+		trustProxy  = flag.Bool("trust-proxy", envOr("TEAMNAV_TRUST_PROXY", "0") == "1", "trust X-Forwarded-For from a reverse proxy")
 	)
 	flag.Parse()
 
@@ -53,12 +55,15 @@ func main() {
 
 	adminUser := envOr("TEAMNAV_ADMIN_USER", "admin")
 	adminPass := envOr("TEAMNAV_ADMIN_PASSWORD", "admin123")
-	dbPath := envOr("TEAMNAV_DB", "")
-	if dbPath == "" {
-		dbPath = *dataDir + string(os.PathSeparator) + "team-nav.db"
+	dsn := *databaseURL
+	if dsn == "" {
+		dsn = envOr("TEAMNAV_DB", "")
+	}
+	if dsn == "" {
+		dsn = filepath.Join(*dataDir, "team-nav.db")
 	}
 
-	st, err := store.Open(dbPath, adminUser, adminPass)
+	st, err := store.OpenDSN(dsn, adminUser, adminPass)
 	if err != nil {
 		logger.Error("failed to open database", "err", err)
 		os.Exit(1)
@@ -110,7 +115,7 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		logger.Info("team-nav started", "addr", *addr, "database", dbPath, "version", version,
+		logger.Info("team-nav started", "addr", *addr, "database", st.Path(), "backend", st.Backend(), "version", version,
 			"imageCacheMB", *cacheMB)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("http server stopped", "err", err)

@@ -17,6 +17,22 @@ jobs:
   test:
     name: Build, vet and test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: teamnav
+          POSTGRES_PASSWORD: teamnav
+          POSTGRES_DB: teamnav_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U teamnav"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEAMNAV_TEST_POSTGRES: postgres://teamnav:teamnav@127.0.0.1:5432/teamnav_test?sslmode=disable
     steps:
       - name: Checkout
         uses: actions/checkout@v4

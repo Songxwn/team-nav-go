@@ -1,0 +1,30 @@
+# 可选覆盖文件：在默认 SQLite 部署之上启用 PostgreSQL。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# 首次使用前请修改 POSTGRES_PASSWORD 与 TEAMNAV_DATABASE_URL 中的密码，
+# 并确认两处保持一致。
+services:
+  teamnav:
+    environment:
+      TEAMNAV_DATABASE_URL: postgres://teamnav:change-me-please@postgres:5432/teamnav?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: teamnav-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: teamnav
+      POSTGRES_PASSWORD: change-me-please
+      POSTGRES_DB: teamnav
+      TZ: Asia/Shanghai
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teamnav -d teamnav"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

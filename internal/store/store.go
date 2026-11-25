@@ -9,11 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
@@ -26,6 +29,10 @@ var ErrNotFound = errors.New("not found")
 // ErrUsernameTaken is returned when an external account maps to a username
 // that already belongs to another identity source.
 var ErrUsernameTaken = errors.New("username already taken")
+
+// ErrBackupUnsupported is returned when a one-click snapshot is requested on a
+// backend that does not support it.
+var ErrBackupUnsupported = errors.New("backup is only available for the SQLite backend")
 
 const schema = `
 CREATE TABLE IF NOT EXISTS users (
@@ -122,15 +129,270 @@ CREATE TABLE IF NOT EXISTS auth_states (
 CREATE INDEX IF NOT EXISTS idx_auth_states_expiry ON auth_states(expires_at);
 `
 
-// Store wraps the SQLite database.
-type Store struct {
-	db   *sql.DB
-	path string
+// postgresSchema mirrors schema using PostgreSQL types. Integer flags stay as
+// INTEGER so the Go models keep scanning them directly; identifiers, timestamps
+// and byte sizes use BIGINT, and image payloads live in BYTEA.
+const postgresSchema = `
+CREATE TABLE IF NOT EXISTS users (
+	id            BIGSERIAL PRIMARY KEY,
+	username      TEXT NOT NULL,
+	password_hash TEXT NOT NULL,
+	display_name  TEXT NOT NULL DEFAULT '',
+	role          TEXT NOT NULL DEFAULT 'member',
+	source        TEXT NOT NULL DEFAULT 'local',
+	external_id   TEXT NOT NULL DEFAULT '',
+	created_at    BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (lower(username));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external ON users(source, external_id) WHERE external_id <> '';
+
+CREATE TABLE IF NOT EXISTS categories (
+	id          BIGSERIAL PRIMARY KEY,
+	name        TEXT NOT NULL,
+	icon        TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	parent_id   BIGINT NOT NULL DEFAULT 0,
+	sort        INTEGER NOT NULL DEFAULT 0,
+	visible     INTEGER NOT NULL DEFAULT 1,
+	created_at  BIGINT NOT NULL,
+	updated_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id, sort);
+
+CREATE TABLE IF NOT EXISTS cards (
+	id          BIGSERIAL PRIMARY KEY,
+	category_id BIGINT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+	name        TEXT NOT NULL,
+	url         TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	icon_type   TEXT NOT NULL DEFAULT 'text',
+	icon_value  TEXT NOT NULL DEFAULT '',
+	tags        TEXT NOT NULL DEFAULT '[]',
+	sort        INTEGER NOT NULL DEFAULT 0,
+	status      TEXT NOT NULL DEFAULT 'approved',
+	clicks      BIGINT NOT NULL DEFAULT 0,
+	created_at  BIGINT NOT NULL,
+	updated_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cards_category ON cards(category_id, sort);
+CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
+
+CREATE TABLE IF NOT EXISTS notices (
+	id         BIGSERIAL PRIMARY KEY,
+	title      TEXT NOT NULL DEFAULT '',
+	content    TEXT NOT NULL DEFAULT '',
+	level      TEXT NOT NULL DEFAULT 'info',
+	link       TEXT NOT NULL DEFAULT '',
+	active     INTEGER NOT NULL DEFAULT 1,
+	sort       INTEGER NOT NULL DEFAULT 0,
+	expires_at BIGINT NOT NULL DEFAULT 0,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	token      TEXT PRIMARY KEY,
+	user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	expires_at BIGINT NOT NULL,
+	created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS images (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL DEFAULT '',
+	mime       TEXT NOT NULL DEFAULT 'application/octet-stream',
+	size       BIGINT NOT NULL DEFAULT 0,
+	sha256     TEXT NOT NULL,
+	data       BYTEA NOT NULL,
+	created_at BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_images_sha ON images(sha256);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+	day   TEXT PRIMARY KEY,
+	views BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS auth_states (
+	state      TEXT PRIMARY KEY,
+	nonce      TEXT NOT NULL,
+	verifier   TEXT NOT NULL,
+	redirect   TEXT NOT NULL DEFAULT '/',
+	expires_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_states_expiry ON auth_states(expires_at);
+`
+
+// conn rebinds SQLite style placeholders for PostgreSQL and hides the dialect
+// from the rest of the store.
+type conn struct {
+	*sql.DB
+	postgres bool
 }
 
-// Open opens (and creates when needed) the SQLite database and applies the
-// schema plus seed data.
+type tx struct {
+	*sql.Tx
+	postgres bool
+}
+
+// rebind rewrites ? placeholders into $1, $2, ... while leaving quoted text
+// alone. SQLite queries are returned untouched.
+func rebind(query string, postgres bool) string {
+	if !postgres {
+		return query
+	}
+	var (
+		b        strings.Builder
+		n        int
+		inSingle bool
+		inDouble bool
+	)
+	b.Grow(len(query) + 8)
+	for i := 0; i < len(query); i++ {
+		c := query[i]
+		switch {
+		case c == '\'' && !inDouble:
+			inSingle = !inSingle
+			b.WriteByte(c)
+		case c == '"' && !inSingle:
+			inDouble = !inDouble
+			b.WriteByte(c)
+		case c == '?' && !inSingle && !inDouble:
+			n++
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(n))
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// postgresArgs normalizes Go values for PostgreSQL. Flag columns are INTEGER in
+// both schemas, so booleans must travel as integers, and integer widths are
+// widened to BIGINT to avoid per-query casts.
+func postgresArgs(args []any) []any {
+	out := make([]any, len(args))
+	for i, arg := range args {
+		switch v := arg.(type) {
+		case bool:
+			if v {
+				out[i] = int64(1)
+			} else {
+				out[i] = int64(0)
+			}
+		case int:
+			out[i] = int64(v)
+		case int8:
+			out[i] = int64(v)
+		case int16:
+			out[i] = int64(v)
+		case int32:
+			out[i] = int64(v)
+		case uint:
+			out[i] = int64(v)
+		case uint8:
+			out[i] = int64(v)
+		case uint16:
+			out[i] = int64(v)
+		case uint32:
+			out[i] = int64(v)
+		case uint64:
+			out[i] = int64(v)
+		default:
+			out[i] = arg
+		}
+	}
+	return out
+}
+
+func (c *conn) args(args []any) []any {
+	if !c.postgres {
+		return args
+	}
+	return postgresArgs(args)
+}
+
+func (c *conn) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return c.DB.ExecContext(ctx, rebind(query, c.postgres), c.args(args)...)
+}
+
+func (c *conn) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return c.DB.QueryContext(ctx, rebind(query, c.postgres), c.args(args)...)
+}
+
+func (c *conn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return c.DB.QueryRowContext(ctx, rebind(query, c.postgres), c.args(args)...)
+}
+
+func (c *conn) BeginTx(ctx context.Context, opts *sql.TxOptions) (*tx, error) {
+	t, err := c.DB.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &tx{Tx: t, postgres: c.postgres}, nil
+}
+
+func (t *tx) args(args []any) []any {
+	if !t.postgres {
+		return args
+	}
+	return postgresArgs(args)
+}
+
+func (t *tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return t.Tx.ExecContext(ctx, rebind(query, t.postgres), t.args(args)...)
+}
+
+func (t *tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.Tx.QueryContext(ctx, rebind(query, t.postgres), t.args(args)...)
+}
+
+func (t *tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return t.Tx.QueryRowContext(ctx, rebind(query, t.postgres), t.args(args)...)
+}
+
+// runner is implemented by both conn and tx.
+type runner interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// Store wraps the database handle.
+type Store struct {
+	db       *conn
+	path     string
+	postgres bool
+}
+
+// Open opens (and creates when needed) a SQLite database and applies the schema
+// plus seed data.
 func Open(path, adminUser, adminPass string) (*Store, error) {
+	return OpenDSN(path, adminUser, adminPass)
+}
+
+// OpenDSN opens either SQLite (a file path) or PostgreSQL (a postgres:// or
+// postgresql:// URL) and prepares the schema and seed data.
+func OpenDSN(dsn, adminUser, adminPass string) (*Store, error) {
+	dsn = strings.TrimSpace(dsn)
+	if isPostgresDSN(dsn) {
+		return openPostgres(dsn, adminUser, adminPass)
+	}
+	return openSQLite(dsn, adminUser, adminPass)
+}
+
+func isPostgresDSN(dsn string) bool {
+	lower := strings.ToLower(strings.TrimSpace(dsn))
+	return strings.HasPrefix(lower, "postgres://") || strings.HasPrefix(lower, "postgresql://")
+}
+
+func openSQLite(path, adminUser, adminPass string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
@@ -146,11 +408,11 @@ func Open(path, adminUser, adminPass string) (*Store, error) {
 	db.SetConnMaxLifetime(time.Hour)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	s := &Store{db: &conn{DB: db}, path: path}
+	if err := s.execScript(ctx, schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	s := &Store{db: db, path: path}
 	if err := s.migrate(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -162,16 +424,112 @@ func Open(path, adminUser, adminPass string) (*Store, error) {
 	return s, nil
 }
 
+func openPostgres(dsn, adminUser, adminPass string) (*Store, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("connect postgres: %w", err)
+	}
+	s := &Store{db: &conn{DB: db, postgres: true}, path: redactDSN(dsn), postgres: true}
+	if err := s.execScript(ctx, postgresSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	if err := s.migrate(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.seed(adminUser, adminPass); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// execScript runs a multi statement schema. PostgreSQL rejects multiple
+// commands in a prepared statement, so statements are always split.
+func (s *Store) execScript(ctx context.Context, script string) error {
+	for _, stmt := range strings.Split(script, ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// insertID inserts a row and returns its generated identifier. PostgreSQL does
+// not support LastInsertId, so it appends RETURNING id there.
+func (s *Store) insertID(ctx context.Context, r runner, query string, args ...any) (int64, error) {
+	if s.postgres {
+		var id int64
+		if err := r.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	res, err := r.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func redactDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "postgres"
+	}
+	if u.User != nil {
+		u.User = url.User(u.User.Username())
+	}
+	return u.String()
+}
+
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
 
-// Path returns the database file location.
+// Path returns the SQLite database file location, or the redacted PostgreSQL
+// connection string.
 func (s *Store) Path() string { return s.path }
 
+// Backend reports the active database engine ("sqlite" or "postgres").
+func (s *Store) Backend() string {
+	if s.postgres {
+		return "postgres"
+	}
+	return "sqlite"
+}
+
 // migrate upgrades databases created by older releases. Columns added after
-// the initial schema are appended when missing; SQLite has no IF NOT EXISTS
-// for columns, so the current shape is inspected first.
+// the initial schema are appended when missing.
 func (s *Store) migrate(ctx context.Context) error {
+	if s.postgres {
+		for _, stmt := range []string{
+			`ALTER TABLE users ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local'`,
+			`ALTER TABLE users ADD COLUMN IF NOT EXISTS external_id TEXT NOT NULL DEFAULT ''`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (lower(username))`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external ON users(source, external_id) WHERE external_id <> ''`,
+		} {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate users table: %w", err)
+			}
+		}
+		_, _ = s.db.ExecContext(ctx, `DELETE FROM auth_states WHERE expires_at < ?`, time.Now().Unix())
+		return nil
+	}
+
 	cols := map[string]bool{}
 	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(users)`)
 	if err != nil {
@@ -208,6 +566,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	if _, err := s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external ON users(source, external_id) WHERE external_id <> ''`); err != nil {
 		return fmt.Errorf("index users external id: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (lower(username))`); err != nil {
+		return fmt.Errorf("index users username: %w", err)
 	}
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM auth_states WHERE expires_at < ?`, time.Now().Unix())
 	return nil
@@ -283,7 +644,7 @@ func (s *Store) seed(adminUser, adminPass string) error {
 		"oidcAutoCreate":       "1",
 	}
 	for k, v := range defaults {
-		if _, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, k, v); err != nil {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT DO NOTHING`, k, v); err != nil {
 			return err
 		}
 	}
@@ -430,13 +791,9 @@ func (s *Store) seedContent(ctx context.Context, now int64) error {
 	defer tx.Rollback()
 
 	insertCategory := func(name, icon, desc string, parentID int64, sort int) (int64, error) {
-		res, err := tx.ExecContext(ctx,
+		return s.insertID(ctx, tx,
 			`INSERT INTO categories (name, icon, description, parent_id, sort, visible, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, ?, 1, ?, ?)`, name, icon, desc, parentID, sort, now, now)
-		if err != nil {
-			return 0, err
-		}
-		return res.LastInsertId()
 	}
 	insertCard := func(categoryID int64, c seedCard, sort int) error {
 		tags, _ := json.Marshal(c.tags)
@@ -551,16 +908,16 @@ func (s *Store) Category(ctx context.Context, id int64) (*model.Category, error)
 // CreateCategory inserts a category and returns it.
 func (s *Store) CreateCategory(ctx context.Context, c *model.Category) error {
 	now := time.Now().Unix()
-	res, err := s.db.ExecContext(ctx,
+	id, err := s.insertID(ctx, s.db,
 		`INSERT INTO categories (name, icon, description, parent_id, sort, visible, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Name, c.Icon, c.Description, c.ParentID, c.Sort, c.Visible, now, now)
 	if err != nil {
 		return err
 	}
-	c.ID, err = res.LastInsertId()
+	c.ID = id
 	c.CreatedAt, c.UpdatedAt = now, now
-	return err
+	return nil
 }
 
 // UpdateCategory saves an existing category.
@@ -699,16 +1056,16 @@ func (s *Store) CreateCard(ctx context.Context, c *model.Card) error {
 	c.Normalize()
 	now := time.Now().Unix()
 	tags, _ := json.Marshal(c.Tags)
-	res, err := s.db.ExecContext(ctx,
+	id, err := s.insertID(ctx, s.db,
 		`INSERT INTO cards (category_id, name, url, description, icon_type, icon_value, tags, sort, status, clicks, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
 		c.CategoryID, c.Name, c.URL, c.Description, c.IconType, c.IconValue, string(tags), c.Sort, c.Status, now, now)
 	if err != nil {
 		return err
 	}
-	c.ID, err = res.LastInsertId()
+	c.ID = id
 	c.CreatedAt, c.UpdatedAt = now, now
-	return err
+	return nil
 }
 
 // UpdateCard saves an existing card.
@@ -778,17 +1135,14 @@ func (s *Store) Notices(ctx context.Context, activeOnly bool) ([]model.Notice, e
 // CreateNotice inserts a notice.
 func (s *Store) CreateNotice(ctx context.Context, n *model.Notice) error {
 	now := time.Now().Unix()
-	res, err := s.db.ExecContext(ctx,
+	id, err := s.insertID(ctx, s.db,
 		`INSERT INTO notices (title, content, level, link, active, sort, expires_at, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.Title, n.Content, n.Level, n.Link, n.Active, n.Sort, n.ExpiresAt, now, now)
 	if err != nil {
 		return err
 	}
-	n.ID, err = res.LastInsertId()
-	if err != nil {
-		return err
-	}
+	n.ID = id
 	n.CreatedAt, n.UpdatedAt = now, now
 	return nil
 }
@@ -823,7 +1177,7 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (*model.Use
 		hash string
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, display_name, role, source, external_id, created_at FROM users WHERE username = ?`, username).
+		`SELECT id, username, password_hash, display_name, role, source, external_id, created_at FROM users WHERE lower(username) = lower(?)`, username).
 		Scan(&u.ID, &u.Username, &hash, &u.DisplayName, &u.Role, &u.Source, &u.ExternalID, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", ErrNotFound
@@ -889,14 +1243,13 @@ func (s *Store) CreateUser(ctx context.Context, username, password, displayName,
 		return nil, err
 	}
 	now := time.Now().Unix()
-	res, err := s.db.ExecContext(ctx,
+	id, err := s.insertID(ctx, s.db,
 		`INSERT INTO users (username, password_hash, display_name, role, source, external_id, created_at)
 		 VALUES (?, ?, ?, ?, 'local', '', ?)`,
 		username, string(hash), displayName, role, now)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return &model.User{ID: id, Username: username, DisplayName: displayName, Role: role, Source: model.SourceLocal, CreatedAt: now}, nil
 }
 
@@ -913,7 +1266,7 @@ func (s *Store) CreateExternalUser(ctx context.Context, username, displayName, r
 		return nil, err
 	}
 	now := time.Now().Unix()
-	res, err := s.db.ExecContext(ctx,
+	id, err := s.insertID(ctx, s.db,
 		`INSERT INTO users (username, password_hash, display_name, role, source, external_id, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		username, string(hash), displayName, role, source, externalID, now)
@@ -923,7 +1276,6 @@ func (s *Store) CreateExternalUser(ctx context.Context, username, displayName, r
 		}
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return &model.User{ID: id, Username: username, DisplayName: displayName, Role: role, Source: source, ExternalID: externalID, CreatedAt: now}, nil
 }
 
@@ -950,7 +1302,13 @@ func (s *Store) UpdateExternalUser(ctx context.Context, id int64, displayName, r
 }
 
 func isUniqueViolation(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique constraint")
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "unique violation")
 }
 
 func randomSecret() (string, error) {
@@ -1178,7 +1536,7 @@ func (s *Store) Stats(ctx context.Context) (*model.Stats, error) {
 			return nil, err
 		}
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(clicks), 0) FROM cards`).Scan(&st.TotalClicks); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT CAST(COALESCE(SUM(clicks), 0) AS BIGINT) FROM cards`).Scan(&st.TotalClicks); err != nil {
 		return nil, err
 	}
 	today := time.Now().Format("2006-01-02")
@@ -1225,15 +1583,23 @@ func (s *Store) Stats(ctx context.Context) (*model.Stats, error) {
 		_ = s.db.QueryRowContext(ctx, `SELECT views FROM daily_stats WHERE day = ?`, day).Scan(&views)
 		st.DailyViews = append(st.DailyViews, model.Daily{Day: day, Views: views})
 	}
-	if info, err := os.Stat(s.path); err == nil {
+	if s.postgres {
+		var size int64
+		_ = s.db.QueryRowContext(ctx, `SELECT pg_database_size(current_database())`).Scan(&size)
+		st.DatabaseSize = size
+	} else if info, err := os.Stat(s.path); err == nil {
 		st.DatabaseSize = info.Size()
 	}
 	return st, nil
 }
 
 // Backup writes a consistent snapshot of the database next to it and returns
-// the snapshot path.
+// the snapshot path. PostgreSQL does not expose a portable SQL snapshot through
+// the driver, so operators should use pg_dump there.
 func (s *Store) Backup(ctx context.Context) (string, error) {
+	if s.postgres {
+		return "", ErrBackupUnsupported
+	}
 	dir := filepath.Join(filepath.Dir(s.path), "backups")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
