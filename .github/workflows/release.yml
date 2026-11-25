@@ -104,7 +104,13 @@ jobs:
           body: |
             ## TeamNav Go ${{ github.ref_name }}
 
-            单二进制、零依赖的团队服务导航，内置 SQLite 与图片缓存。
+            单二进制、零依赖的团队服务导航，默认内置 SQLite，可选 PostgreSQL，并自带图片缓存。
+
+            ### 本版亮点
+
+            - 新增可选 PostgreSQL 后端：设置 `TEAMNAV_DATABASE_URL=postgres://...` 即可切换，首次连接自动建表并写入默认数据
+            - 图片继续随数据库存储（SQLite `BLOB` / PostgreSQL `BYTEA`），按 SHA-256 去重
+            - 用户名在两种后端上都按大小写不敏感处理；PostgreSQL 请使用 `pg_dump` 做备份
 
             ### 下载
 
@@ -131,3 +137,4 @@ jobs:
 
             运行：`./teamnav -data ./data`，浏览器打开 <http://localhost:8080>。
             首次启动请通过 `TEAMNAV_ADMIN_PASSWORD` 设置管理员密码。
+            使用 PostgreSQL 时额外设置 `TEAMNAV_DATABASE_URL`，并参考 README 的数据库后端章节。
