@@ -1514,7 +1514,7 @@ func (s *Store) DeleteImage(ctx context.Context, id string) error {
 func (s *Store) RecordView(ctx context.Context, day string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO daily_stats (day, views) VALUES (?, 1)
-		 ON CONFLICT(day) DO UPDATE SET views = views + 1`, day)
+		 ON CONFLICT(day) DO UPDATE SET views = daily_stats.views + 1`, day)
 	return err
 }
 
